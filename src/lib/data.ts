@@ -201,10 +201,10 @@ export async function getCalendarEvents(
   return events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 }
 
-export async function getDashboardStats(
+export function getDashboardStats(
   releases: Release[],
   inbounds: InboundOrderWithTotals[]
-): Promise<DashboardStats> {
+): DashboardStats {
   const now = new Date();
   
   const isWithinDays = (dateStr: string, days: number) => {

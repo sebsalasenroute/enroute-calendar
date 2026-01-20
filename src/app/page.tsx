@@ -1016,15 +1016,19 @@ function InboundDrawer({
 
   const handleFileUpload = async (file: File) => {
     setUploadResult(null);
-    const result = await processUploadedFile(file);
-    if (result.success && result.data) {
-      setFormData({
-        ...formData,
-        line_items: [...(formData.line_items || []), ...result.data],
-      });
-      setUploadResult({ success: true, message: `Added ${result.data.length} items (${formatNumber(result.summary?.total_units || 0)} units)` });
-    } else {
-      setUploadResult({ success: false, message: result.error || 'Failed to parse file' });
+    try {
+      const result = await processUploadedFile(file);
+      if (result.success && result.data) {
+        setFormData({
+          ...formData,
+          line_items: [...(formData.line_items || []), ...result.data],
+        });
+        setUploadResult({ success: true, message: `Added ${result.data.length} items (${formatNumber(result.summary?.total_units || 0)} units)` });
+      } else {
+        setUploadResult({ success: false, message: result.error || 'Failed to parse file' });
+      }
+    } catch (error) {
+      setUploadResult({ success: false, message: error instanceof Error ? error.message : 'Failed to process file' });
     }
   };
 
@@ -1230,13 +1234,18 @@ export default function App() {
   // Load data
   useEffect(() => {
     const loadData = async () => {
-      const [r, i] = await Promise.all([
-        dataStore.getReleases(),
-        dataStore.getInboundOrders(),
-      ]);
-      setReleases(r);
-      setInbounds(i);
-      setLoading(false);
+      try {
+        const [r, i] = await Promise.all([
+          dataStore.getReleases(),
+          dataStore.getInboundOrders(),
+        ]);
+        setReleases(r);
+        setInbounds(i);
+      } catch (error) {
+        console.error('Failed to load data:', error);
+      } finally {
+        setLoading(false);
+      }
     };
     loadData();
   }, []);
@@ -1321,7 +1330,7 @@ export default function App() {
 
         <div className="content">
           {view === 'dashboard' && (
-            <DashboardView stats={stats as any} onSelectRelease={openRelease} onSelectInbound={openInbound} />
+            <DashboardView stats={stats} onSelectRelease={openRelease} onSelectInbound={openInbound} />
           )}
           {view === 'calendar' && (
             <CalendarView events={events} onSelectEvent={handleSelectEvent} />
