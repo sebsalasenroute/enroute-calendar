@@ -1,13 +1,11 @@
-import { 
-  Release, 
-  InboundOrder, 
-  InboundOrderWithTotals, 
-  User,
+import {
+  Release,
+  InboundOrder,
+  InboundOrderWithTotals,
   CalendarEvent,
   DashboardStats,
-  Asset,
 } from '@/types';
-import { seedReleases, seedInboundOrders, seedUsers } from '@/data/seed';
+import { seedReleases, seedInboundOrders } from '@/data/seed';
 import { differenceInDays, parseISO } from 'date-fns';
 
 // ============================================
@@ -28,10 +26,6 @@ export interface DataStore {
   createInboundOrder(data: Omit<InboundOrder, 'id' | 'created_at' | 'updated_at'>): Promise<InboundOrderWithTotals>;
   updateInboundOrder(id: string, data: Partial<InboundOrder>): Promise<InboundOrderWithTotals | null>;
   deleteInboundOrder(id: string): Promise<boolean>;
-  
-  // Users
-  getUsers(): Promise<User[]>;
-  getUser(email: string): Promise<User | null>;
 }
 
 // ============================================
@@ -63,7 +57,6 @@ function calculateTotals(order: InboundOrder): InboundOrderWithTotals {
 class LocalMemoryStore implements DataStore {
   private releases: Release[] = [...seedReleases];
   private inboundOrders: InboundOrder[] = [...seedInboundOrders];
-  private users: User[] = [...seedUsers];
   
   // Releases
   async getReleases(): Promise<Release[]> {
@@ -146,15 +139,6 @@ class LocalMemoryStore implements DataStore {
     if (idx === -1) return false;
     this.inboundOrders.splice(idx, 1);
     return true;
-  }
-  
-  // Users
-  async getUsers(): Promise<User[]> {
-    return [...this.users];
-  }
-  
-  async getUser(email: string): Promise<User | null> {
-    return this.users.find(u => u.email === email) || null;
   }
 }
 

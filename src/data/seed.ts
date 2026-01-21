@@ -1,11 +1,4 @@
-import { Release, InboundOrder, User, Asset } from '@/types';
-
-// Seed Users
-export const seedUsers: User[] = [
-  { id: 'user-1', email: 'alex@enroute.cc', name: 'Alex Chen', role: 'admin' },
-  { id: 'user-2', email: 'maya@enroute.cc', name: 'Maya Rodriguez', role: 'editor' },
-  { id: 'user-3', email: 'jordan@enroute.run', name: 'Jordan Kim', role: 'editor' },
-];
+import { Release, InboundOrder, Asset } from '@/types';
 
 // Helper for dates
 const today = new Date();

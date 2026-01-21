@@ -23,18 +23,6 @@ export type InboundStatus =
 // Currency
 export type Currency = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CNY' | 'CAD';
 
-// User Role
-export type UserRole = 'viewer' | 'editor' | 'admin';
-
-// User
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  image?: string;
-  role: UserRole;
-}
-
 // Asset Types - Extended to support both links and files
 export type AssetType = 'drive' | 'figma' | 'shopify' | 'lookbook' | 'instagram' | 'image' | 'pdf' | 'file' | 'other';
 

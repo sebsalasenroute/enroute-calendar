@@ -436,11 +436,3 @@ export function cn(...classes: (string | undefined | false | null)[]): string {
   return classes.filter(Boolean).join(' ');
 }
 
-// ============================================
-// VALIDATION
-// ============================================
-
-export function validateEmail(email: string, allowedDomains: string[]): boolean {
-  const domain = email.split('@')[1];
-  return allowedDomains.includes(domain);
-}
