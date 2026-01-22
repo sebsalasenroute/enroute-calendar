@@ -23,6 +23,9 @@ export type InboundStatus =
 // Currency
 export type Currency = 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CNY' | 'CAD';
 
+// Payment Terms
+export type PaymentTerms = 'Prepaid' | 'COD' | 'Net-15' | 'Net-30' | 'Net-45' | 'Net-60' | 'Net-90';
+
 // Asset Types - Extended to support both links and files
 export type AssetType = 'drive' | 'figma' | 'shopify' | 'lookbook' | 'instagram' | 'image' | 'pdf' | 'file' | 'other';
 
@@ -74,6 +77,7 @@ export interface Release {
   tags: string[];
   assets: Asset[];
   line_items?: LineItem[]; // Products in this release
+  payment_terms?: PaymentTerms; // Payment terms for this release
   owner: string;
   created_at: string;
   updated_at: string;
@@ -92,6 +96,7 @@ export interface InboundOrder {
   ship_date?: string;
   status: InboundStatus;
   currency: Currency;
+  payment_terms: PaymentTerms; // Payment terms (default Net-30)
   shipping_method?: string;
   tracking_number?: string;
   assets: Asset[];
@@ -159,3 +164,38 @@ export interface FileUploadResult {
 
 // Supported file types for line item imports
 export type ImportFileType = 'csv' | 'xlsx' | 'xls' | 'pdf';
+
+// Cash Flow Entry
+export interface CashFlowEntry {
+  id: string;
+  date: string; // Payment due date
+  type: 'outflow' | 'inflow';
+  category: 'inbound_payment' | 'release_revenue';
+  amount: number;
+  currency: Currency;
+  description: string;
+  reference: string; // PO number or release title
+  source: InboundOrderWithTotals | Release;
+}
+
+// Monthly Cash Flow Summary
+export interface MonthlyCashFlow {
+  month: string; // YYYY-MM format
+  monthLabel: string; // "January 2025"
+  outflows: CashFlowEntry[];
+  inflows: CashFlowEntry[];
+  totalOutflow: number;
+  totalInflow: number;
+  netCashFlow: number;
+}
+
+// Calendar Export Event
+export interface CalendarExportEvent {
+  uid: string;
+  title: string;
+  description: string;
+  startDate: string;
+  endDate: string;
+  location?: string;
+  url?: string;
+}

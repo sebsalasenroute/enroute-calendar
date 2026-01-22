@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format, parseISO, isToday } from 'date-fns';
-import { 
-  Release, 
-  InboundOrderWithTotals, 
-  CalendarEvent, 
+import {
+  Release,
+  InboundOrderWithTotals,
+  CalendarEvent,
   FilterState,
   BrandUnit,
   ReleaseType,
@@ -15,6 +15,8 @@ import {
   Asset,
   LineItem,
   Currency,
+  PaymentTerms,
+  MonthlyCashFlow,
 } from '@/types';
 import { 
   dataStore, 
@@ -45,6 +47,14 @@ import {
   formatFileSize,
   exportToShopifyCSV,
   downloadCSV,
+  generateCashFlowEntries,
+  groupCashFlowByMonth,
+  generateICSCalendar,
+  createCalendarEvents,
+  downloadICS,
+  generateCalendarSummaryEmail,
+  generate7DayReminders,
+  copyToClipboard,
 } from '@/lib/utils';
 
 // ============================================
@@ -147,6 +157,31 @@ const Icons = {
       <polyline points="20 6 9 17 4 12"/>
     </svg>
   ),
+  DollarSign: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+    </svg>
+  ),
+  Mail: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+    </svg>
+  ),
+  Share: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/>
+    </svg>
+  ),
+  TrendingUp: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>
+    </svg>
+  ),
+  TrendingDown: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/>
+    </svg>
+  ),
 };
 
 // ============================================
@@ -179,7 +214,7 @@ function BrandBadge({ brand }: { brand: BrandUnit }) {
 // SIDEBAR
 // ============================================
 
-type ViewType = 'dashboard' | 'calendar' | 'list';
+type ViewType = 'dashboard' | 'calendar' | 'list' | 'cashflow';
 
 function Sidebar({ 
   view, 
@@ -208,7 +243,10 @@ function Sidebar({
         <button className={cn('nav-item', view === 'list' && 'active')} onClick={() => onViewChange('list')}>
           <Icons.List /> All Items
         </button>
-        
+        <button className={cn('nav-item', view === 'cashflow' && 'active')} onClick={() => onViewChange('cashflow')}>
+          <Icons.DollarSign /> Cash Flow
+        </button>
+
         <div className="sidebar-section">
           <div className="sidebar-label">Quick Add</div>
           <button className="nav-item" onClick={onNewRelease}>
@@ -699,6 +737,188 @@ function CalendarView({
 }
 
 // ============================================
+// CASH FLOW VIEW
+// ============================================
+
+function CashFlowView({
+  cashFlow,
+  onSelectInbound,
+}: {
+  cashFlow: MonthlyCashFlow[];
+  onSelectInbound: (i: InboundOrderWithTotals) => void;
+}) {
+  const [expandedMonth, setExpandedMonth] = useState<string | null>(null);
+
+  const toggleMonth = (month: string) => {
+    setExpandedMonth(expandedMonth === month ? null : month);
+  };
+
+  // Calculate running totals
+  let runningTotal = 0;
+  const monthsWithRunning = cashFlow.map((m) => {
+    runningTotal += m.netCashFlow;
+    return { ...m, runningTotal };
+  });
+
+  return (
+    <div>
+      <h3 className="section-title">Cash Flow Projections</h3>
+      <p className="text-muted" style={{ marginBottom: 'var(--sp-4)', fontSize: '0.875rem' }}>
+        Projected cash outflows based on payment terms. Click a month to see details.
+      </p>
+
+      <div className="cashflow-grid">
+        {monthsWithRunning.map((month) => (
+          <div key={month.month} className="cashflow-month">
+            <div
+              className="cashflow-header"
+              onClick={() => toggleMonth(month.month)}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className="cashflow-month-title">
+                <strong>{month.monthLabel}</strong>
+                <span className="text-muted" style={{ fontSize: '0.75rem', marginLeft: 'var(--sp-2)' }}>
+                  {month.outflows.length + month.inflows.length} items
+                </span>
+              </div>
+              <div className="cashflow-summary">
+                <div className="cashflow-item outflow">
+                  <Icons.TrendingDown />
+                  <span>{formatCurrency(month.totalOutflow)}</span>
+                </div>
+                <div className="cashflow-item inflow">
+                  <Icons.TrendingUp />
+                  <span>{formatCurrency(month.totalInflow)}</span>
+                </div>
+                <div
+                  className={cn('cashflow-item net', month.netCashFlow >= 0 ? 'positive' : 'negative')}
+                >
+                  <strong>Net: {formatCurrency(Math.abs(month.netCashFlow))}</strong>
+                  {month.netCashFlow < 0 && <span style={{ color: 'var(--red-500)' }}> (outflow)</span>}
+                </div>
+              </div>
+            </div>
+
+            {expandedMonth === month.month && (
+              <div className="cashflow-details">
+                {month.outflows.length > 0 && (
+                  <div className="cashflow-section">
+                    <h4 style={{ color: 'var(--red-600)', marginBottom: 'var(--sp-2)' }}>
+                      <Icons.TrendingDown /> Outflows (Payments Due)
+                    </h4>
+                    <table className="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>Due Date</th>
+                          <th>Reference</th>
+                          <th>Description</th>
+                          <th className="text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {month.outflows.map((entry) => (
+                          <tr
+                            key={entry.id}
+                            onClick={() => {
+                              if (entry.category === 'inbound_payment') {
+                                onSelectInbound(entry.source as InboundOrderWithTotals);
+                              }
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <td>{formatDate(entry.date)}</td>
+                            <td><code>{entry.reference}</code></td>
+                            <td>{entry.description}</td>
+                            <td className="text-right mono" style={{ color: 'var(--red-600)' }}>
+                              -{formatCurrency(entry.amount, entry.currency)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {month.inflows.length > 0 && (
+                  <div className="cashflow-section" style={{ marginTop: 'var(--sp-3)' }}>
+                    <h4 style={{ color: 'var(--green-600)', marginBottom: 'var(--sp-2)' }}>
+                      <Icons.TrendingUp /> Projected Revenue
+                    </h4>
+                    <table className="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>Release Date</th>
+                          <th>Reference</th>
+                          <th>Description</th>
+                          <th className="text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {month.inflows.map((entry) => (
+                          <tr key={entry.id}>
+                            <td>{formatDate(entry.date)}</td>
+                            <td>{entry.reference}</td>
+                            <td>{entry.description}</td>
+                            <td className="text-right mono" style={{ color: 'var(--green-600)' }}>
+                              +{formatCurrency(entry.amount, entry.currency)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {month.outflows.length === 0 && month.inflows.length === 0 && (
+                  <p className="text-muted" style={{ padding: 'var(--sp-3)', textAlign: 'center' }}>
+                    No cash flow items for this month.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Summary Card */}
+      <div className="card" style={{ marginTop: 'var(--sp-4)' }}>
+        <div className="card-body">
+          <h4 style={{ marginBottom: 'var(--sp-3)' }}>6-Month Summary</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-4)', textAlign: 'center' }}>
+            <div>
+              <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--red-600)' }}>
+                {formatCurrency(cashFlow.reduce((sum, m) => sum + m.totalOutflow, 0))}
+              </div>
+              <div className="text-muted">Total Outflows</div>
+            </div>
+            <div>
+              <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 600, color: 'var(--green-600)' }}>
+                {formatCurrency(cashFlow.reduce((sum, m) => sum + m.totalInflow, 0))}
+              </div>
+              <div className="text-muted">Projected Revenue</div>
+            </div>
+            <div>
+              <div
+                className="mono"
+                style={{
+                  fontSize: '1.5rem',
+                  fontWeight: 600,
+                  color: runningTotal >= 0 ? 'var(--green-600)' : 'var(--red-600)',
+                }}
+              >
+                {formatCurrency(Math.abs(runningTotal))}
+                {runningTotal < 0 && <span style={{ fontSize: '0.875rem' }}> (deficit)</span>}
+              </div>
+              <div className="text-muted">Net Position</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
 // LIST VIEW
 // ============================================
 
@@ -871,6 +1091,7 @@ function ReleaseDrawer({
         tags: [],
         assets: [],
         line_items: [],
+        payment_terms: 'Net-30',
         owner: '',
       });
     }
@@ -986,9 +1207,23 @@ function ReleaseDrawer({
             <textarea className="input textarea" value={formData.summary || ''} onChange={e => setFormData({ ...formData, summary: e.target.value })} placeholder="Describe the release..." />
           </div>
 
-          <div className="form-group">
-            <label className="label">Tags (comma-separated)</label>
-            <input className="input" value={formData.tags?.join(', ') || ''} onChange={e => setFormData({ ...formData, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })} placeholder="summer, capsule, SS25" />
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="label">Tags (comma-separated)</label>
+              <input className="input" value={formData.tags?.join(', ') || ''} onChange={e => setFormData({ ...formData, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })} placeholder="summer, capsule, SS25" />
+            </div>
+            <div className="form-group">
+              <label className="label">Payment Terms</label>
+              <select className="input select" value={formData.payment_terms || 'Net-30'} onChange={e => setFormData({ ...formData, payment_terms: e.target.value as PaymentTerms })}>
+                <option value="Prepaid">Prepaid</option>
+                <option value="COD">COD (Cash on Delivery)</option>
+                <option value="Net-15">Net-15</option>
+                <option value="Net-30">Net-30</option>
+                <option value="Net-45">Net-45</option>
+                <option value="Net-60">Net-60</option>
+                <option value="Net-90">Net-90</option>
+              </select>
+            </div>
           </div>
 
           <div className="form-group">
@@ -1124,6 +1359,7 @@ function InboundDrawer({
         eta_date: format(new Date(), 'yyyy-MM-dd'),
         status: 'Placed',
         currency: 'USD',
+        payment_terms: 'Net-30',
         assets: [],
         line_items: [],
         notes: '',
@@ -1237,15 +1473,29 @@ function InboundDrawer({
             </div>
           </div>
 
-          <div className="form-group">
-            <label className="label">Currency</label>
-            <select className="input select" value={formData.currency || ''} onChange={e => setFormData({ ...formData, currency: e.target.value as Currency })}>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-              <option value="CAD">CAD</option>
-              <option value="CNY">CNY</option>
-            </select>
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="label">Currency</label>
+              <select className="input select" value={formData.currency || ''} onChange={e => setFormData({ ...formData, currency: e.target.value as Currency })}>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+                <option value="GBP">GBP</option>
+                <option value="CAD">CAD</option>
+                <option value="CNY">CNY</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="label">Payment Terms</label>
+              <select className="input select" value={formData.payment_terms || 'Net-30'} onChange={e => setFormData({ ...formData, payment_terms: e.target.value as PaymentTerms })}>
+                <option value="Prepaid">Prepaid</option>
+                <option value="COD">COD (Cash on Delivery)</option>
+                <option value="Net-15">Net-15</option>
+                <option value="Net-30">Net-30</option>
+                <option value="Net-45">Net-45</option>
+                <option value="Net-60">Net-60</option>
+                <option value="Net-90">Net-90</option>
+              </select>
+            </div>
           </div>
 
           {/* Totals */}
@@ -1404,6 +1654,34 @@ export default function App() {
     return evts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [releases, inbounds]);
   const stats = useMemo(() => getDashboardStats(releases, inbounds), [releases, inbounds]);
+  const cashFlow = useMemo(() => {
+    const entries = generateCashFlowEntries(inbounds, releases);
+    return groupCashFlowByMonth(entries, 6);
+  }, [releases, inbounds]);
+
+  // Export handlers
+  const handleExportCalendar = () => {
+    const calendarEvents = createCalendarEvents(releases, inbounds);
+    const ics = generateICSCalendar(calendarEvents);
+    downloadICS(ics, `enroute-calendar-${format(new Date(), 'yyyy-MM-dd')}.ics`);
+  };
+
+  const handleShareCalendar = async () => {
+    const email = generateCalendarSummaryEmail(releases, inbounds);
+    await copyToClipboard(email.body);
+    alert('Calendar summary copied to clipboard!');
+  };
+
+  const handleEmailReminders = () => {
+    const reminders = generate7DayReminders(releases);
+    if (reminders.length === 0) {
+      alert('No releases are exactly 7 days away.');
+      return;
+    }
+    const emailContent = reminders.map(r => `Subject: ${r.subject}\n\n${r.body}`).join('\n\n---\n\n');
+    copyToClipboard(emailContent);
+    alert(`${reminders.length} reminder(s) copied to clipboard!`);
+  };
 
   // Handlers
   const openNewRelease = () => { setSelectedRelease(null); setIsNewRelease(true); setReleaseDrawerOpen(true); };
@@ -1466,8 +1744,18 @@ export default function App() {
             {view === 'dashboard' && 'Dashboard'}
             {view === 'calendar' && 'Calendar'}
             {view === 'list' && 'All Items'}
+            {view === 'cashflow' && 'Cash Flow'}
           </h1>
           <div className="flex gap-2">
+            <button className="btn btn-ghost" onClick={handleExportCalendar} title="Export to Google Calendar">
+              <Icons.Calendar /> Export .ics
+            </button>
+            <button className="btn btn-ghost" onClick={handleShareCalendar} title="Copy calendar summary">
+              <Icons.Share /> Share
+            </button>
+            <button className="btn btn-ghost" onClick={handleEmailReminders} title="Generate 7-day reminders">
+              <Icons.Mail /> Reminders
+            </button>
             <button className="btn btn-secondary" onClick={openNewRelease}><Icons.Plus /> Release</button>
             <button className="btn btn-primary" onClick={openNewInbound}><Icons.Plus /> Inbound</button>
           </div>
@@ -1490,6 +1778,9 @@ export default function App() {
               onSelectRelease={openRelease}
               onSelectInbound={openInbound}
             />
+          )}
+          {view === 'cashflow' && (
+            <CashFlowView cashFlow={cashFlow} onSelectInbound={openInbound} />
           )}
         </div>
       </main>

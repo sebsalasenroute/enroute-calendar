@@ -1033,6 +1033,126 @@ body {
 }
 
 /* ============================================
+   CASH FLOW VIEW
+   ============================================ */
+
+.cashflow-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.cashflow-month {
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.cashflow-header {
+  padding: var(--sp-4);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--gray-50);
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.cashflow-header:hover {
+  background: var(--gray-100);
+}
+
+.cashflow-month-title {
+  display: flex;
+  align-items: center;
+}
+
+.cashflow-summary {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: center;
+}
+
+.cashflow-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: 0.875rem;
+  font-family: var(--font-mono);
+}
+
+.cashflow-item svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cashflow-item.outflow {
+  color: var(--red-600);
+}
+
+.cashflow-item.inflow {
+  color: var(--green-600);
+}
+
+.cashflow-item.net.positive {
+  color: var(--green-700);
+}
+
+.cashflow-item.net.negative {
+  color: var(--red-700);
+}
+
+.cashflow-details {
+  padding: var(--sp-4);
+  background: var(--white);
+}
+
+.cashflow-section h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.cashflow-section h4 svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Line Items Summary for Releases */
+.line-items-summary {
+  display: flex;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+}
+
+.line-items-summary span {
+  color: var(--gray-600);
+}
+
+/* Upload Result */
+.upload-result {
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+}
+
+.upload-result.success {
+  background: var(--green-50);
+  color: var(--green-700);
+}
+
+.upload-result.error {
+  background: var(--red-50);
+  color: var(--red-700);
+}
+
+/* ============================================
    RESPONSIVE
    ============================================ */
 
