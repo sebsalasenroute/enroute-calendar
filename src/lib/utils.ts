@@ -1,9 +1,9 @@
-import { 
-  format, 
-  parseISO, 
-  isToday, 
-  isTomorrow, 
-  isPast, 
+import {
+  format,
+  parseISO,
+  isToday,
+  isTomorrow,
+  isPast,
   isFuture,
   differenceInDays,
   startOfMonth,
@@ -15,16 +15,23 @@ import {
   subMonths,
   isSameMonth,
   isSameDay,
+  addDays,
 } from 'date-fns';
-import { 
-  ReleaseStatus, 
-  InboundStatus, 
-  ReleaseType, 
-  BrandUnit, 
+import {
+  ReleaseStatus,
+  InboundStatus,
+  ReleaseType,
+  BrandUnit,
   Currency,
   LineItem,
   FileUploadResult,
   AssetType,
+  PaymentTerms,
+  Release,
+  InboundOrderWithTotals,
+  CashFlowEntry,
+  MonthlyCashFlow,
+  CalendarExportEvent,
 } from '@/types';
 
 // ============================================
@@ -614,5 +621,417 @@ export function downloadCSV(content: string, filename: string): void {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+// ============================================
+// CASH FLOW UTILITIES
+// ============================================
+
+// Get number of days for payment terms
+export function getPaymentTermsDays(terms: PaymentTerms): number {
+  switch (terms) {
+    case 'Prepaid': return -30; // Payment due before order
+    case 'COD': return 0; // Cash on delivery
+    case 'Net-15': return 15;
+    case 'Net-30': return 30;
+    case 'Net-45': return 45;
+    case 'Net-60': return 60;
+    case 'Net-90': return 90;
+    default: return 30;
+  }
+}
+
+// Calculate payment due date based on order date and payment terms
+export function getPaymentDueDate(orderDate: string, terms: PaymentTerms): string {
+  const date = parseISO(orderDate);
+  const daysToAdd = getPaymentTermsDays(terms);
+  return format(addDays(date, daysToAdd), 'yyyy-MM-dd');
+}
+
+// Generate cash flow entries from inbound orders
+export function generateCashFlowEntries(
+  inbounds: InboundOrderWithTotals[],
+  releases: Release[]
+): CashFlowEntry[] {
+  const entries: CashFlowEntry[] = [];
+
+  // Outflows from inbound orders (payments to vendors)
+  for (const inbound of inbounds) {
+    if (inbound.status === 'Cancelled') continue;
+
+    const orderDate = inbound.order_date || inbound.created_at.split('T')[0];
+    const paymentDueDate = getPaymentDueDate(orderDate, inbound.payment_terms);
+
+    entries.push({
+      id: `cf-out-${inbound.id}`,
+      date: paymentDueDate,
+      type: 'outflow',
+      category: 'inbound_payment',
+      amount: inbound.total_cost,
+      currency: inbound.currency,
+      description: `Payment for ${inbound.po_number}`,
+      reference: inbound.po_number,
+      source: inbound,
+    });
+  }
+
+  // Inflows from releases (projected revenue)
+  for (const release of releases) {
+    if (release.status === 'Cancelled' || !release.line_items?.length) continue;
+
+    const totalRevenue = release.line_items.reduce(
+      (sum, item) => sum + item.qty * (item.unit_retail || item.unit_cost * 2.5),
+      0
+    );
+
+    if (totalRevenue > 0) {
+      entries.push({
+        id: `cf-in-${release.id}`,
+        date: release.release_date,
+        type: 'inflow',
+        category: 'release_revenue',
+        amount: totalRevenue,
+        currency: 'USD',
+        description: `Projected revenue from ${release.title}`,
+        reference: release.title,
+        source: release,
+      });
+    }
+  }
+
+  return entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+// Group cash flow entries by month
+export function groupCashFlowByMonth(
+  entries: CashFlowEntry[],
+  monthsAhead: number = 6
+): MonthlyCashFlow[] {
+  const now = new Date();
+  const months: MonthlyCashFlow[] = [];
+
+  for (let i = -1; i < monthsAhead; i++) {
+    const monthDate = addMonths(now, i);
+    const monthKey = format(monthDate, 'yyyy-MM');
+    const monthLabel = format(monthDate, 'MMMM yyyy');
+
+    const monthEntries = entries.filter((e) => e.date.startsWith(monthKey));
+    const outflows = monthEntries.filter((e) => e.type === 'outflow');
+    const inflows = monthEntries.filter((e) => e.type === 'inflow');
+
+    const totalOutflow = outflows.reduce((sum, e) => sum + e.amount, 0);
+    const totalInflow = inflows.reduce((sum, e) => sum + e.amount, 0);
+
+    months.push({
+      month: monthKey,
+      monthLabel,
+      outflows,
+      inflows,
+      totalOutflow,
+      totalInflow,
+      netCashFlow: totalInflow - totalOutflow,
+    });
+  }
+
+  return months;
+}
+
+// ============================================
+// CALENDAR EXPORT (ICS)
+// ============================================
+
+function formatICSDate(dateStr: string, time?: string): string {
+  const date = parseISO(dateStr);
+  if (time) {
+    const [hours, minutes] = time.split(':');
+    date.setHours(parseInt(hours), parseInt(minutes), 0);
+  }
+  return format(date, "yyyyMMdd'T'HHmmss");
+}
+
+function escapeICS(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\n/g, '\\n');
+}
+
+export function generateICSCalendar(events: CalendarExportEvent[]): string {
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//ENROUTE//Release Calendar//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:ENROUTE Release Calendar',
+  ];
+
+  for (const event of events) {
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${event.uid}`);
+    lines.push(`DTSTAMP:${formatICSDate(new Date().toISOString().split('T')[0])}`);
+    lines.push(`DTSTART:${formatICSDate(event.startDate)}`);
+    lines.push(`DTEND:${formatICSDate(event.endDate)}`);
+    lines.push(`SUMMARY:${escapeICS(event.title)}`);
+    if (event.description) {
+      lines.push(`DESCRIPTION:${escapeICS(event.description)}`);
+    }
+    if (event.location) {
+      lines.push(`LOCATION:${escapeICS(event.location)}`);
+    }
+    if (event.url) {
+      lines.push(`URL:${event.url}`);
+    }
+    lines.push('END:VEVENT');
+  }
+
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+export function createCalendarEvents(
+  releases: Release[],
+  inbounds: InboundOrderWithTotals[]
+): CalendarExportEvent[] {
+  const events: CalendarExportEvent[] = [];
+
+  // Add release events
+  for (const release of releases) {
+    if (release.status === 'Cancelled') continue;
+
+    const totalUnits = release.line_items?.reduce((sum, i) => sum + i.qty, 0) || 0;
+    const description = [
+      release.summary,
+      '',
+      `Type: ${release.type}`,
+      `Brand: ${release.brand_unit}`,
+      `Status: ${release.status}`,
+      totalUnits > 0 ? `Units: ${totalUnits}` : '',
+      `Owner: ${release.owner}`,
+    ]
+      .filter(Boolean)
+      .join('\\n');
+
+    events.push({
+      uid: `release-${release.id}@enroute.cc`,
+      title: `🚀 ${release.title}`,
+      description,
+      startDate: release.release_date,
+      endDate: release.release_date,
+    });
+  }
+
+  // Add inbound ETA events
+  for (const inbound of inbounds) {
+    if (inbound.status === 'Cancelled' || inbound.status === 'Received Complete') continue;
+
+    const description = [
+      `PO: ${inbound.po_number}`,
+      `Vendor: ${inbound.vendor}`,
+      `Status: ${inbound.status}`,
+      `Units: ${inbound.total_units}`,
+      `Cost: ${formatCurrency(inbound.total_cost, inbound.currency)}`,
+      inbound.tracking_number ? `Tracking: ${inbound.tracking_number}` : '',
+    ]
+      .filter(Boolean)
+      .join('\\n');
+
+    events.push({
+      uid: `inbound-${inbound.id}@enroute.cc`,
+      title: `📦 ${inbound.brand} - ${inbound.po_number} (ETA)`,
+      description,
+      startDate: inbound.eta_date,
+      endDate: inbound.eta_date,
+    });
+  }
+
+  // Add payment due date events
+  for (const inbound of inbounds) {
+    if (inbound.status === 'Cancelled') continue;
+
+    const orderDate = inbound.order_date || inbound.created_at.split('T')[0];
+    const paymentDueDate = getPaymentDueDate(orderDate, inbound.payment_terms);
+
+    events.push({
+      uid: `payment-${inbound.id}@enroute.cc`,
+      title: `💰 Payment Due: ${inbound.po_number}`,
+      description: [
+        `Vendor: ${inbound.vendor}`,
+        `Amount: ${formatCurrency(inbound.total_cost, inbound.currency)}`,
+        `Terms: ${inbound.payment_terms}`,
+      ].join('\\n'),
+      startDate: paymentDueDate,
+      endDate: paymentDueDate,
+    });
+  }
+
+  return events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+}
+
+export function downloadICS(content: string, filename: string): void {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+// ============================================
+// EMAIL REMINDER GENERATOR
+// ============================================
+
+export interface ReminderEmailData {
+  subject: string;
+  body: string;
+  recipients?: string[];
+}
+
+export function generateReleaseReminder(release: Release, daysUntil: number): ReminderEmailData {
+  const totalUnits = release.line_items?.reduce((sum, i) => sum + i.qty, 0) || 0;
+  const totalValue = release.line_items?.reduce(
+    (sum, i) => sum + i.qty * (i.unit_retail || i.unit_cost * 2.5),
+    0
+  ) || 0;
+
+  const subject = `[REMINDER] ${release.title} launches in ${daysUntil} days`;
+
+  const body = `
+Hi team,
+
+This is a reminder that "${release.title}" is scheduled to launch in ${daysUntil} days.
+
+RELEASE DETAILS
+───────────────
+Title: ${release.title}
+Type: ${release.type}
+Brand: ${release.brand_unit}
+Date: ${formatDate(release.release_date)}${release.release_time ? ` at ${release.release_time}` : ''}
+Status: ${release.status}
+
+${totalUnits > 0 ? `INVENTORY
+───────────────
+Total SKUs: ${release.line_items?.length || 0}
+Total Units: ${totalUnits.toLocaleString()}
+Est. Revenue: ${formatCurrency(totalValue)}
+` : ''}
+SUMMARY
+───────────────
+${release.summary}
+
+${release.tags.length > 0 ? `Tags: ${release.tags.join(', ')}` : ''}
+
+Please ensure all preparations are complete:
+• Product pages are live/scheduled
+• Inventory is loaded in Shopify
+• Marketing assets are ready
+• Social media posts are scheduled
+• Customer service team is briefed
+
+Owner: ${release.owner}
+
+---
+ENROUTE Release Calendar
+`.trim();
+
+  return { subject, body };
+}
+
+export function generate7DayReminders(releases: Release[]): ReminderEmailData[] {
+  const now = new Date();
+  const reminders: ReminderEmailData[] = [];
+
+  for (const release of releases) {
+    if (release.status === 'Cancelled' || release.status === 'Landed') continue;
+
+    const daysUntil = differenceInDays(parseISO(release.release_date), now);
+
+    if (daysUntil === 7) {
+      reminders.push(generateReleaseReminder(release, 7));
+    }
+  }
+
+  return reminders;
+}
+
+export function generateCalendarSummaryEmail(
+  releases: Release[],
+  inbounds: InboundOrderWithTotals[]
+): ReminderEmailData {
+  const now = new Date();
+  const next30Days = releases
+    .filter((r) => {
+      const days = differenceInDays(parseISO(r.release_date), now);
+      return days >= 0 && days <= 30 && r.status !== 'Cancelled';
+    })
+    .sort((a, b) => new Date(a.release_date).getTime() - new Date(b.release_date).getTime());
+
+  const upcomingInbounds = inbounds
+    .filter((i) => {
+      const days = differenceInDays(parseISO(i.eta_date), now);
+      return days >= 0 && days <= 30 && i.status !== 'Cancelled' && i.status !== 'Received Complete';
+    })
+    .sort((a, b) => new Date(a.eta_date).getTime() - new Date(b.eta_date).getTime());
+
+  const subject = `ENROUTE Calendar Summary - ${format(now, 'MMMM yyyy')}`;
+
+  let body = `
+ENROUTE RELEASE CALENDAR SUMMARY
+================================
+Generated: ${format(now, 'MMMM d, yyyy')}
+
+UPCOMING RELEASES (Next 30 Days)
+────────────────────────────────
+`;
+
+  if (next30Days.length === 0) {
+    body += 'No releases scheduled.\n';
+  } else {
+    for (const release of next30Days) {
+      const daysUntil = differenceInDays(parseISO(release.release_date), now);
+      body += `
+• ${release.title}
+  Date: ${formatDate(release.release_date)} (${daysUntil === 0 ? 'TODAY' : `in ${daysUntil} days`})
+  Type: ${release.type} | Brand: ${release.brand_unit}
+  Status: ${release.status}
+`;
+    }
+  }
+
+  body += `
+INCOMING INVENTORY (Next 30 Days)
+─────────────────────────────────
+`;
+
+  if (upcomingInbounds.length === 0) {
+    body += 'No inbound orders expected.\n';
+  } else {
+    for (const inbound of upcomingInbounds) {
+      const daysUntil = differenceInDays(parseISO(inbound.eta_date), now);
+      body += `
+• ${inbound.brand} - ${inbound.po_number}
+  ETA: ${formatDate(inbound.eta_date)} (${daysUntil === 0 ? 'TODAY' : `in ${daysUntil} days`})
+  Vendor: ${inbound.vendor}
+  Units: ${inbound.total_units.toLocaleString()} | Cost: ${formatCurrency(inbound.total_cost, inbound.currency)}
+  Status: ${inbound.status}
+`;
+    }
+  }
+
+  body += `
+---
+ENROUTE Release Calendar
+`;
+
+  return { subject, body: body.trim() };
+}
+
+export function copyToClipboard(text: string): Promise<void> {
+  return navigator.clipboard.writeText(text);
 }
 

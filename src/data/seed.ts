@@ -152,6 +152,7 @@ export const seedInboundOrders: InboundOrder[] = [
     eta_date: addDays(18),
     status: 'In Transit',
     currency: 'USD',
+    payment_terms: 'Net-30',
     shipping_method: 'Sea Freight',
     assets: [
       createAsset('Invoice', 'https://drive.google.com/drive/folders/po-0142-invoice.pdf', 'drive'),
@@ -183,6 +184,7 @@ export const seedInboundOrders: InboundOrder[] = [
     eta_date: addDays(8),
     status: 'Customs',
     currency: 'USD',
+    payment_terms: 'Net-30',
     shipping_method: 'Air Freight',
     tracking_number: 'UPSTRK-2025-9932',
     assets: [
@@ -212,6 +214,7 @@ export const seedInboundOrders: InboundOrder[] = [
     eta_date: addDays(-3),
     status: 'Received Partial',
     currency: 'USD',
+    payment_terms: 'Net-45',
     assets: [
       createAsset('Invoice', 'https://drive.google.com/drive/folders/po-0138-invoice.pdf', 'drive'),
     ],
@@ -235,6 +238,7 @@ export const seedInboundOrders: InboundOrder[] = [
     eta_date: addDays(52),
     status: 'Placed',
     currency: 'USD',
+    payment_terms: 'Net-30',
     assets: [],
     line_items: [
       { id: 'li-019', sku: 'RUN-PAC-TEE-S', vendor_sku: 'PAC-COL-S', product_name: 'ENROUTE × Pacers Collab Tee', size: 'S', qty: 75, unit_cost: 22.00, unit_retail: 58 },
@@ -257,6 +261,7 @@ export const seedInboundOrders: InboundOrder[] = [
     eta_date: addDays(-21),
     status: 'Received Complete',
     currency: 'USD',
+    payment_terms: 'Net-60',
     assets: [
       createAsset('Invoice', 'https://drive.google.com/drive/folders/po-0129-invoice.pdf', 'drive'),
       createAsset('QC Report', 'https://drive.google.com/drive/folders/po-0129-qc', 'drive'),
