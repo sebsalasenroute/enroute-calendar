@@ -677,14 +677,28 @@ export function generateCashFlowEntries(
 
   // Inflows from releases (projected revenue)
   for (const release of releases) {
-    if (release.status === 'Cancelled' || !release.line_items?.length) continue;
+    if (release.status === 'Cancelled') continue;
 
-    const totalRevenue = release.line_items.reduce(
-      (sum, item) => sum + item.qty * (item.unit_retail || item.unit_cost * 2.5),
-      0
-    );
+    // Use user-specified projected_revenue if available
+    // Otherwise calculate from line items, fallback to 0
+    let totalRevenue = release.projected_revenue || 0;
+
+    // If no projected revenue specified but we have line items, calculate estimate
+    if (!release.projected_revenue && release.line_items?.length) {
+      const calculatedRevenue = release.line_items.reduce(
+        (sum, item) => sum + item.qty * (item.unit_retail || item.unit_cost * 2.5),
+        0
+      );
+      // Apply inventory turnover % if specified (default 100%)
+      const turnoverPct = release.inventory_turnover_pct ?? 100;
+      totalRevenue = calculatedRevenue * (turnoverPct / 100);
+    }
 
     if (totalRevenue > 0) {
+      const turnoverNote = release.inventory_turnover_pct !== undefined
+        ? ` (${release.inventory_turnover_pct}% turnover)`
+        : '';
+
       entries.push({
         id: `cf-in-${release.id}`,
         date: release.release_date,
@@ -692,7 +706,7 @@ export function generateCashFlowEntries(
         category: 'release_revenue',
         amount: totalRevenue,
         currency: 'USD',
-        description: `Projected revenue from ${release.title}`,
+        description: `Projected revenue from ${release.title}${turnoverNote}`,
         reference: release.title,
         source: release,
       });
@@ -805,9 +819,12 @@ export function createCalendarEvents(
       release.summary,
       '',
       `Type: ${release.type}`,
-      `Brand: ${release.brand_unit}`,
+      release.brand ? `Brand: ${release.brand}` : '',
+      `Brand Unit: ${release.brand_unit}`,
       `Status: ${release.status}`,
       totalUnits > 0 ? `Units: ${totalUnits}` : '',
+      release.projected_revenue ? `Projected Revenue: ${formatCurrency(release.projected_revenue)}` : '',
+      release.inventory_turnover_pct !== undefined ? `Turnover: ${release.inventory_turnover_pct}%` : '',
       `Owner: ${release.owner}`,
     ]
       .filter(Boolean)
