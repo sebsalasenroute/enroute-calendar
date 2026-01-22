@@ -296,15 +296,38 @@ function mapColumn(header: string): string | null {
 // LINE ITEM PARSING
 // ============================================
 
+// Auto-detect which price column is cost vs retail
+// Logic: if we have two price columns, lower = cost, higher = retail
+function detectPrices(row: Record<string, string>): { cost: number; retail: number | undefined } {
+  const costValue = parseNumber(row.unit_cost || '0');
+  const retailValue = row.unit_retail ? parseNumber(row.unit_retail) : undefined;
+
+  // If both values exist, ensure cost is lower and retail is higher
+  if (costValue > 0 && retailValue && retailValue > 0) {
+    if (costValue > retailValue) {
+      // Swap - the lower value should be cost
+      return { cost: retailValue, retail: costValue };
+    }
+    return { cost: costValue, retail: retailValue };
+  }
+
+  // If only one price exists, try to determine what it is
+  if (costValue > 0 && !retailValue) {
+    return { cost: costValue, retail: undefined };
+  }
+
+  return { cost: costValue, retail: retailValue };
+}
+
 export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUploadResult {
   const items: LineItem[] = [];
   const warnings: string[] = [];
   let skipped = 0;
-  
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const mappedRow: Record<string, string> = {};
-    
+
     // Map columns to standard fields
     for (const [key, value] of Object.entries(row)) {
       const mappedKey = mapColumn(key);
@@ -312,12 +335,14 @@ export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUplo
         mappedRow[mappedKey] = value;
       }
     }
-    
+
     // Extract values
     const productName = mappedRow.product_name || '';
     const qty = parseNumber(mappedRow.qty || '0');
-    const unitCost = parseNumber(mappedRow.unit_cost || '0');
-    
+
+    // Auto-detect cost vs retail prices
+    const { cost, retail } = detectPrices(mappedRow);
+
     // Skip rows without essential data
     if (!productName || qty <= 0) {
       skipped++;
@@ -326,7 +351,7 @@ export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUplo
       }
       continue;
     }
-    
+
     const item: LineItem = {
       id: `li-${Date.now()}-${i}`,
       sku: mappedRow.sku || undefined,
@@ -337,20 +362,20 @@ export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUplo
       color: mappedRow.color || undefined,
       material: mappedRow.material || undefined,
       qty,
-      unit_cost: unitCost,
-      unit_retail: mappedRow.unit_retail ? parseNumber(mappedRow.unit_retail) : undefined,
+      unit_cost: cost,
+      unit_retail: retail,
       barcode: mappedRow.barcode || undefined,
       weight: mappedRow.weight ? parseNumber(mappedRow.weight) : undefined,
       hs_code: mappedRow.hs_code || undefined,
       country_of_origin: mappedRow.country_of_origin || undefined,
     };
-    
+
     items.push(item);
   }
-  
+
   const totalUnits = items.reduce((sum, item) => sum + item.qty, 0);
   const totalCost = items.reduce((sum, item) => sum + (item.qty * item.unit_cost), 0);
-  
+
   return {
     success: items.length > 0,
     data: items,
@@ -437,10 +462,157 @@ export function cn(...classes: (string | undefined | false | null)[]): string {
 }
 
 // ============================================
-// VALIDATION
+// SHOPIFY EXPORT
 // ============================================
 
-export function validateEmail(email: string, allowedDomains: string[]): boolean {
-  const domain = email.split('@')[1];
-  return allowedDomains.includes(domain);
+// Shopify CSV headers for product import
+const SHOPIFY_HEADERS = [
+  'Handle',
+  'Title',
+  'Body (HTML)',
+  'Vendor',
+  'Type',
+  'Tags',
+  'Published',
+  'Option1 Name',
+  'Option1 Value',
+  'Option2 Name',
+  'Option2 Value',
+  'Option3 Name',
+  'Option3 Value',
+  'Variant SKU',
+  'Variant Grams',
+  'Variant Inventory Tracker',
+  'Variant Inventory Qty',
+  'Variant Inventory Policy',
+  'Variant Fulfillment Service',
+  'Variant Price',
+  'Variant Compare At Price',
+  'Variant Requires Shipping',
+  'Variant Taxable',
+  'Variant Barcode',
+  'Image Src',
+  'Image Position',
+  'Image Alt Text',
+  'Gift Card',
+  'SEO Title',
+  'SEO Description',
+  'Variant Weight Unit',
+  'Cost per item',
+];
+
+function generateHandle(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
+
+function escapeCSV(value: string | number | undefined): string {
+  if (value === undefined || value === null) return '';
+  const str = String(value);
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+export interface ShopifyExportOptions {
+  vendor?: string;
+  productType?: string;
+  tags?: string[];
+  published?: boolean;
+}
+
+export function exportToShopifyCSV(
+  items: LineItem[],
+  options: ShopifyExportOptions = {}
+): string {
+  const {
+    vendor = 'ENROUTE',
+    productType = '',
+    tags = [],
+    published = false,
+  } = options;
+
+  const rows: string[] = [];
+
+  // Add header row
+  rows.push(SHOPIFY_HEADERS.map(escapeCSV).join(','));
+
+  // Group items by product name to handle variants
+  const productGroups = new Map<string, LineItem[]>();
+  for (const item of items) {
+    const key = item.product_name;
+    if (!productGroups.has(key)) {
+      productGroups.set(key, []);
+    }
+    productGroups.get(key)!.push(item);
+  }
+
+  // Generate rows for each product and its variants
+  for (const [productName, variants] of Array.from(productGroups.entries())) {
+    const handle = generateHandle(productName);
+
+    variants.forEach((item, index) => {
+      const isFirstVariant = index === 0;
+
+      // Determine option values
+      const hasSize = variants.some(v => v.size);
+      const hasColor = variants.some(v => v.color);
+
+      const row = [
+        handle, // Handle
+        isFirstVariant ? productName : '', // Title
+        '', // Body (HTML)
+        isFirstVariant ? vendor : '', // Vendor
+        isFirstVariant ? productType : '', // Type
+        isFirstVariant ? tags.join(', ') : '', // Tags
+        isFirstVariant ? (published ? 'TRUE' : 'FALSE') : '', // Published
+        hasSize ? 'Size' : '', // Option1 Name
+        item.size || '', // Option1 Value
+        hasColor ? 'Color' : '', // Option2 Name
+        item.color || '', // Option2 Value
+        '', // Option3 Name
+        '', // Option3 Value
+        item.sku || '', // Variant SKU
+        item.weight ? Math.round(item.weight * 1000) : '', // Variant Grams
+        'shopify', // Variant Inventory Tracker
+        item.qty, // Variant Inventory Qty
+        'deny', // Variant Inventory Policy
+        'manual', // Variant Fulfillment Service
+        item.unit_retail || item.unit_cost * 2.5, // Variant Price
+        item.unit_retail ? '' : '', // Variant Compare At Price
+        'TRUE', // Variant Requires Shipping
+        'TRUE', // Variant Taxable
+        item.barcode || '', // Variant Barcode
+        '', // Image Src
+        '', // Image Position
+        '', // Image Alt Text
+        'FALSE', // Gift Card
+        '', // SEO Title
+        '', // SEO Description
+        item.weight_unit || 'kg', // Variant Weight Unit
+        item.unit_cost, // Cost per item
+      ];
+
+      rows.push(row.map(escapeCSV).join(','));
+    });
+  }
+
+  return rows.join('\n');
+}
+
+export function downloadCSV(content: string, filename: string): void {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
