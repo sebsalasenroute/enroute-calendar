@@ -43,6 +43,8 @@ import {
   processUploadedFile,
   generateId,
   formatFileSize,
+  exportToShopifyCSV,
+  downloadCSV,
 } from '@/lib/utils';
 
 // ============================================
@@ -98,6 +100,11 @@ const Icons = {
   Upload: () => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>
+    </svg>
+  ),
+  Download: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>
     </svg>
   ),
   Copy: () => (
@@ -848,6 +855,7 @@ function ReleaseDrawer({
   isNew: boolean;
 }) {
   const [formData, setFormData] = useState<Partial<Release>>({});
+  const [uploadResult, setUploadResult] = useState<{ success?: boolean; message?: string } | null>(null);
 
   useEffect(() => {
     if (release) {
@@ -862,15 +870,59 @@ function ReleaseDrawer({
         summary: '',
         tags: [],
         assets: [],
+        line_items: [],
         owner: '',
       });
     }
+    setUploadResult(null);
   }, [release]);
 
   const handleSave = () => {
     onSave(formData);
     onClose();
   };
+
+  const handleFileUpload = async (file: File) => {
+    setUploadResult(null);
+    try {
+      const result = await processUploadedFile(file);
+      if (result.success && result.data) {
+        setFormData({
+          ...formData,
+          line_items: [...(formData.line_items || []), ...result.data],
+        });
+        setUploadResult({ success: true, message: `Added ${result.data.length} items (${formatNumber(result.summary?.total_units || 0)} units)` });
+      } else {
+        setUploadResult({ success: false, message: result.error || 'Failed to parse file' });
+      }
+    } catch (error) {
+      setUploadResult({ success: false, message: error instanceof Error ? error.message : 'Failed to process file' });
+    }
+  };
+
+  const clearLineItems = () => {
+    setFormData({ ...formData, line_items: [] });
+  };
+
+  const removeLineItem = (id: string) => {
+    setFormData({ ...formData, line_items: (formData.line_items || []).filter(i => i.id !== id) });
+  };
+
+  const handleExportShopify = () => {
+    if (!formData.line_items || formData.line_items.length === 0) return;
+    const csv = exportToShopifyCSV(formData.line_items, {
+      vendor: 'ENROUTE',
+      productType: formData.type || 'Drop',
+      tags: formData.tags || [],
+      published: false,
+    });
+    const filename = `${formData.title || 'release'}-shopify-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    downloadCSV(csv, filename);
+  };
+
+  const totalUnits = formData.line_items?.reduce((sum, i) => sum + i.qty, 0) || 0;
+  const totalCost = formData.line_items?.reduce((sum, i) => sum + (i.qty * i.unit_cost), 0) || 0;
+  const totalValue = formData.line_items?.reduce((sum, i) => sum + (i.qty * (i.unit_retail || i.unit_cost * 2.5)), 0) || 0;
 
   return (
     <>
@@ -950,6 +1002,77 @@ function ReleaseDrawer({
               onChange={assets => setFormData({ ...formData, assets })}
               canEdit={true}
             />
+          </div>
+
+          {/* Line Items / Products Section */}
+          <div className="form-group">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
+              <label className="label" style={{ margin: 0 }}>Products / Line Items</label>
+              {(formData.line_items?.length || 0) > 0 && (
+                <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+                  <button className="btn btn-sm btn-secondary" onClick={handleExportShopify}>
+                    <Icons.Download /> Export Shopify CSV
+                  </button>
+                  <button className="btn btn-sm btn-ghost" onClick={clearLineItems}>Clear All</button>
+                </div>
+              )}
+            </div>
+
+            <FileUploader onUpload={handleFileUpload} accept=".csv,.xlsx,.xls" />
+
+            {uploadResult && (
+              <div className={cn('upload-result', uploadResult.success ? 'success' : 'error')}>
+                {uploadResult.message}
+              </div>
+            )}
+
+            {(formData.line_items?.length || 0) > 0 && (
+              <>
+                <div className="line-items-summary" style={{ marginTop: 'var(--sp-3)', marginBottom: 'var(--sp-2)' }}>
+                  <span><strong>{formData.line_items?.length}</strong> SKUs</span>
+                  <span><strong>{formatNumber(totalUnits)}</strong> units</span>
+                  <span>Cost: <strong>{formatCurrency(totalCost)}</strong></span>
+                  <span>Retail: <strong>{formatCurrency(totalValue)}</strong></span>
+                </div>
+
+                <div className="table-container" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  <table className="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Product</th>
+                        <th>SKU</th>
+                        <th>UPC/Barcode</th>
+                        <th>Size</th>
+                        <th>Color</th>
+                        <th>Qty</th>
+                        <th>Cost</th>
+                        <th>MSRP</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {formData.line_items?.map(item => (
+                        <tr key={item.id}>
+                          <td>{item.product_name}</td>
+                          <td><code>{item.sku || '-'}</code></td>
+                          <td><code>{item.barcode || '-'}</code></td>
+                          <td>{item.size || '-'}</td>
+                          <td>{item.color || '-'}</td>
+                          <td>{item.qty}</td>
+                          <td>{formatCurrency(item.unit_cost)}</td>
+                          <td>{item.unit_retail ? formatCurrency(item.unit_retail) : '-'}</td>
+                          <td>
+                            <button className="btn btn-icon btn-ghost btn-sm" onClick={() => removeLineItem(item.id)}>
+                              <Icons.X />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -1038,6 +1161,18 @@ function InboundDrawer({
 
   const removeLineItem = (id: string) => {
     setFormData({ ...formData, line_items: (formData.line_items || []).filter(i => i.id !== id) });
+  };
+
+  const handleExportShopify = () => {
+    if (!formData.line_items || formData.line_items.length === 0) return;
+    const csv = exportToShopifyCSV(formData.line_items, {
+      vendor: formData.brand || 'ENROUTE',
+      productType: formData.collection_name || '',
+      tags: [],
+      published: false,
+    });
+    const filename = `${formData.po_number || 'inbound'}-shopify-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    downloadCSV(csv, filename);
   };
 
   const totalUnits = formData.line_items?.reduce((sum, i) => sum + i.qty, 0) || 0;
@@ -1133,10 +1268,15 @@ function InboundDrawer({
 
           {/* Line Items */}
           <div className="form-group">
-            <div className="flex items-center justify-between" style={{ marginBottom: 'var(--sp-2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
               <label className="label" style={{ marginBottom: 0 }}>Line Items ({formData.line_items?.length || 0})</label>
               {(formData.line_items?.length || 0) > 0 && (
-                <button className="btn btn-sm btn-danger" onClick={clearLineItems}>Clear All</button>
+                <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+                  <button className="btn btn-sm btn-secondary" onClick={handleExportShopify}>
+                    <Icons.Download /> Export Shopify CSV
+                  </button>
+                  <button className="btn btn-sm btn-ghost" onClick={clearLineItems}>Clear All</button>
+                </div>
               )}
             </div>
 
@@ -1156,22 +1296,27 @@ function InboundDrawer({
                   <thead>
                     <tr>
                       <th>Product</th>
+                      <th>SKU</th>
+                      <th>UPC/Barcode</th>
                       <th>Size</th>
+                      <th>Color</th>
                       <th className="text-right">Qty</th>
                       <th className="text-right">Cost</th>
+                      <th className="text-right">MSRP</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {formData.line_items?.map(item => (
                       <tr key={item.id}>
-                        <td>
-                          <div>{item.product_name}</div>
-                          {item.sku && <div className="mono text-muted" style={{ fontSize: '0.625rem' }}>{item.sku}</div>}
-                        </td>
+                        <td>{item.product_name}</td>
+                        <td><code style={{ fontSize: '0.625rem' }}>{item.sku || '-'}</code></td>
+                        <td><code style={{ fontSize: '0.625rem' }}>{item.barcode || '-'}</code></td>
                         <td>{item.size || '-'}</td>
+                        <td>{item.color || '-'}</td>
                         <td className="text-right mono">{item.qty}</td>
                         <td className="text-right mono">{formatCurrency(item.unit_cost, formData.currency || 'USD')}</td>
+                        <td className="text-right mono">{item.unit_retail ? formatCurrency(item.unit_retail, formData.currency || 'USD') : '-'}</td>
                         <td>
                           <button className="btn btn-icon btn-ghost" style={{ width: 24, height: 24 }} onClick={() => removeLineItem(item.id)}>
                             <Icons.X />

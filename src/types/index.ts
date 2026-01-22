@@ -73,6 +73,7 @@ export interface Release {
   summary: string;
   tags: string[];
   assets: Asset[];
+  line_items?: LineItem[]; // Products in this release
   owner: string;
   created_at: string;
   updated_at: string;
