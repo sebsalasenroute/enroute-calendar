@@ -68,6 +68,7 @@ export interface LineItem {
 export interface Release {
   id: string;
   brand_unit: BrandUnit;
+  brand?: string; // Product brand (e.g., MAAP, Nike) - auto-suggest from previous entries
   title: string;
   type: ReleaseType;
   release_date: string;
@@ -78,6 +79,8 @@ export interface Release {
   assets: Asset[];
   line_items?: LineItem[]; // Products in this release
   payment_terms?: PaymentTerms; // Payment terms for this release
+  projected_revenue?: number; // User-specified projected revenue for cash flow
+  inventory_turnover_pct?: number; // Expected inventory turnover percentage (0-100)
   owner: string;
   created_at: string;
   updated_at: string;

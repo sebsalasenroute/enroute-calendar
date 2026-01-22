@@ -349,6 +349,121 @@ function FilterBar({
 }
 
 // ============================================
+// BRAND AUTO-SUGGEST COMPONENT
+// ============================================
+
+const SAVED_BRANDS_KEY = 'enroute-saved-brands';
+
+function getSavedBrands(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const saved = localStorage.getItem(SAVED_BRANDS_KEY);
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveBrand(brand: string): void {
+  if (typeof window === 'undefined' || !brand.trim()) return;
+  try {
+    const brands = getSavedBrands();
+    const normalizedBrand = brand.trim();
+    if (!brands.includes(normalizedBrand)) {
+      brands.push(normalizedBrand);
+      brands.sort((a, b) => a.localeCompare(b));
+      localStorage.setItem(SAVED_BRANDS_KEY, JSON.stringify(brands));
+    }
+  } catch {
+    // Ignore localStorage errors
+  }
+}
+
+function BrandAutoSuggest({
+  value,
+  onChange,
+  placeholder = 'Enter brand name',
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const savedBrands = getSavedBrands();
+    if (value.trim()) {
+      const filtered = savedBrands.filter(b =>
+        b.toLowerCase().includes(value.toLowerCase())
+      );
+      setSuggestions(filtered);
+    } else {
+      setSuggestions(savedBrands);
+    }
+  }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelect = (brand: string) => {
+    onChange(brand);
+    setIsOpen(false);
+  };
+
+  const handleBlur = () => {
+    // Save brand on blur if it's a new one
+    setTimeout(() => {
+      if (value.trim()) {
+        saveBrand(value);
+      }
+    }, 200);
+  };
+
+  return (
+    <div className="autosuggest-container" ref={containerRef}>
+      <input
+        type="text"
+        className="input"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setIsOpen(true)}
+        onBlur={handleBlur}
+        placeholder={placeholder}
+      />
+      {isOpen && suggestions.length > 0 && (
+        <div className="autosuggest-dropdown">
+          {suggestions.map(brand => (
+            <div
+              key={brand}
+              className="autosuggest-item"
+              onMouseDown={() => handleSelect(brand)}
+            >
+              {brand}
+            </div>
+          ))}
+        </div>
+      )}
+      {isOpen && suggestions.length === 0 && value.trim() && (
+        <div className="autosuggest-dropdown">
+          <div className="autosuggest-empty">
+            Press Enter or Tab to add "{value}" as a new brand
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
 // FILE UPLOAD COMPONENT
 // ============================================
 
@@ -1083,6 +1198,7 @@ function ReleaseDrawer({
     } else {
       setFormData({
         brand_unit: 'ENROUTE.CC',
+        brand: '',
         title: '',
         type: 'Drop',
         release_date: format(new Date(), 'yyyy-MM-dd'),
@@ -1092,6 +1208,8 @@ function ReleaseDrawer({
         assets: [],
         line_items: [],
         payment_terms: 'Net-30',
+        projected_revenue: undefined,
+        inventory_turnover_pct: undefined,
         owner: '',
       });
     }
@@ -1099,6 +1217,10 @@ function ReleaseDrawer({
   }, [release]);
 
   const handleSave = () => {
+    // Save brand to localStorage for future auto-suggest
+    if (formData.brand?.trim()) {
+      saveBrand(formData.brand);
+    }
     onSave(formData);
     onClose();
   };
@@ -1132,7 +1254,7 @@ function ReleaseDrawer({
   const handleExportShopify = () => {
     if (!formData.line_items || formData.line_items.length === 0) return;
     const csv = exportToShopifyCSV(formData.line_items, {
-      vendor: 'ENROUTE',
+      vendor: formData.brand || 'ENROUTE',
       productType: formData.type || 'Drop',
       tags: formData.tags || [],
       published: false,
@@ -1155,12 +1277,22 @@ function ReleaseDrawer({
         </div>
 
         <div className="drawer-body">
-          <div className="form-group">
-            <label className="label">Brand Unit</label>
-            <select className="input select" value={formData.brand_unit || ''} onChange={e => setFormData({ ...formData, brand_unit: e.target.value as BrandUnit })}>
-              <option value="ENROUTE.CC">ENROUTE.CC</option>
-              <option value="ENROUTE.RUN">ENROUTE.RUN</option>
-            </select>
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="label">Brand Unit</label>
+              <select className="input select" value={formData.brand_unit || ''} onChange={e => setFormData({ ...formData, brand_unit: e.target.value as BrandUnit })}>
+                <option value="ENROUTE.CC">ENROUTE.CC</option>
+                <option value="ENROUTE.RUN">ENROUTE.RUN</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="label">Brand</label>
+              <BrandAutoSuggest
+                value={formData.brand || ''}
+                onChange={brand => setFormData({ ...formData, brand })}
+                placeholder="e.g., MAAP, Nike"
+              />
+            </div>
           </div>
 
           <div className="form-group">
@@ -1223,6 +1355,34 @@ function ReleaseDrawer({
                 <option value="Net-60">Net-60</option>
                 <option value="Net-90">Net-90</option>
               </select>
+            </div>
+          </div>
+
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="label">Projected Revenue ($)</label>
+              <input
+                type="number"
+                className="input mono"
+                value={formData.projected_revenue || ''}
+                onChange={e => setFormData({ ...formData, projected_revenue: e.target.value ? parseFloat(e.target.value) : undefined })}
+                placeholder="e.g., 15000"
+                min="0"
+                step="100"
+              />
+            </div>
+            <div className="form-group">
+              <label className="label">Inventory Turnover (%)</label>
+              <input
+                type="number"
+                className="input mono"
+                value={formData.inventory_turnover_pct || ''}
+                onChange={e => setFormData({ ...formData, inventory_turnover_pct: e.target.value ? parseFloat(e.target.value) : undefined })}
+                placeholder="e.g., 85"
+                min="0"
+                max="100"
+                step="1"
+              />
             </div>
           </div>
 
