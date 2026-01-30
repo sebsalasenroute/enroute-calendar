@@ -182,6 +182,26 @@ const Icons = {
       <polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/>
     </svg>
   ),
+  ShoppingCart: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>
+    </svg>
+  ),
+  Repeat: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>
+    </svg>
+  ),
+  Clock: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+    </svg>
+  ),
+  Loader: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+    </svg>
+  ),
 };
 
 // ============================================
@@ -208,6 +228,914 @@ function TypeBadge({ type }: { type: ReleaseType }) {
 function BrandBadge({ brand }: { brand: BrandUnit }) {
   const className = brand === 'ENROUTE.CC' ? 'badge-dark' : 'badge-orange-solid';
   return <span className={cn('badge', className)}>{brand}</span>;
+}
+
+function OrderTypeBadge({ type }: { type: 'preorder' | 'restock' | 'onetime' }) {
+  const config = {
+    preorder: { className: 'badge-blue', label: 'Pre-order' },
+    restock: { className: 'badge-teal', label: 'Re-stock' },
+    onetime: { className: 'badge-purple', label: 'One-time' },
+  };
+  return <span className={cn('badge', config[type].className)}>{config[type].label}</span>;
+}
+
+// ============================================
+// TOAST NOTIFICATIONS
+// ============================================
+
+type Toast = {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'info';
+};
+
+function ToastContainer({ toasts }: { toasts: Toast[] }) {
+  return (
+    <div className="toast-container">
+      {toasts.map(toast => (
+        <div key={toast.id} className={cn('toast', toast.type)}>
+          {toast.type === 'success' && <Icons.Check />}
+          {toast.type === 'error' && <Icons.AlertCircle />}
+          {toast.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================
+// BOTTOM NAVIGATION (Mobile)
+// ============================================
+
+function BottomNav({
+  view,
+  onViewChange,
+  onUploadClick,
+}: {
+  view: ViewType;
+  onViewChange: (v: ViewType) => void;
+  onUploadClick: () => void;
+}) {
+  return (
+    <nav className="bottom-nav">
+      <button
+        className={cn('bottom-nav-item', view === 'dashboard' && 'active')}
+        onClick={() => onViewChange('dashboard')}
+      >
+        <Icons.Dashboard />
+        <span>Home</span>
+      </button>
+      <button
+        className={cn('bottom-nav-item', view === 'calendar' && 'active')}
+        onClick={() => onViewChange('calendar')}
+      >
+        <Icons.Calendar />
+        <span>Calendar</span>
+      </button>
+      <button className="bottom-nav-item primary" onClick={onUploadClick}>
+        <Icons.Plus />
+      </button>
+      <button
+        className={cn('bottom-nav-item', view === 'list' && 'active')}
+        onClick={() => onViewChange('list')}
+      >
+        <Icons.List />
+        <span>Items</span>
+      </button>
+      <button
+        className={cn('bottom-nav-item', view === 'cashflow' && 'active')}
+        onClick={() => onViewChange('cashflow')}
+      >
+        <Icons.DollarSign />
+        <span>Cash</span>
+      </button>
+    </nav>
+  );
+}
+
+// ============================================
+// UPLOAD WIZARD MODAL
+// ============================================
+
+type WizardStep = 1 | 2 | 3;
+type OrderType = 'preorder' | 'restock' | 'onetime';
+
+interface UploadWizardData {
+  orderType: OrderType | null;
+  // Common fields
+  brand_unit: BrandUnit;
+  brand: string;
+  vendor: string;
+  collection_name: string;
+  sku: string;
+  quantity: number | '';
+  unit_cost: number | '';
+  currency: Currency;
+  expected_arrival_date: string;
+  payment_terms: PaymentTerms;
+  notes: string;
+  line_items: LineItem[];
+  // Pre-order specific
+  preorder_open_date: string;
+  preorder_close_date: string;
+  deposit_percentage: number | '';
+  expected_payout_date: string;
+  // Re-stock specific
+  order_date: string;
+  warehouse_location: string;
+  receiving_date: string;
+  // One-time specific
+  due_date: string;
+  payment_date: string;
+}
+
+const initialWizardData: UploadWizardData = {
+  orderType: null,
+  brand_unit: 'ENROUTE.CC',
+  brand: '',
+  vendor: '',
+  collection_name: '',
+  sku: '',
+  quantity: '',
+  unit_cost: '',
+  currency: 'USD',
+  expected_arrival_date: format(new Date(), 'yyyy-MM-dd'),
+  payment_terms: 'Net-30',
+  notes: '',
+  line_items: [],
+  preorder_open_date: '',
+  preorder_close_date: '',
+  deposit_percentage: '',
+  expected_payout_date: '',
+  order_date: format(new Date(), 'yyyy-MM-dd'),
+  warehouse_location: '',
+  receiving_date: '',
+  due_date: '',
+  payment_date: '',
+};
+
+interface ValidationErrors {
+  [key: string]: string;
+}
+
+function UploadWizardModal({
+  isOpen,
+  onClose,
+  onSubmit,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (data: UploadWizardData) => Promise<void>;
+}) {
+  const [step, setStep] = useState<WizardStep>(1);
+  const [data, setData] = useState<UploadWizardData>(initialWizardData);
+  const [errors, setErrors] = useState<ValidationErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ success?: boolean; message?: string } | null>(null);
+
+  // Reset on open
+  useEffect(() => {
+    if (isOpen) {
+      setStep(1);
+      setData(initialWizardData);
+      setErrors({});
+      setUploadResult(null);
+    }
+  }, [isOpen]);
+
+  const validateStep2 = (): boolean => {
+    const newErrors: ValidationErrors = {};
+
+    if (!data.brand.trim()) newErrors.brand = 'Brand is required';
+    if (!data.vendor.trim()) newErrors.vendor = 'Vendor is required';
+    if (!data.collection_name.trim()) newErrors.collection_name = 'Collection/Product name is required';
+
+    if (data.orderType === 'preorder') {
+      if (!data.preorder_open_date) newErrors.preorder_open_date = 'Open date is required';
+      if (!data.preorder_close_date) newErrors.preorder_close_date = 'Close date is required';
+    }
+
+    if (data.orderType === 'restock') {
+      if (!data.expected_arrival_date) newErrors.expected_arrival_date = 'ETA is required';
+    }
+
+    if (data.orderType === 'onetime') {
+      if (!data.due_date) newErrors.due_date = 'Due date is required';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const validateStep3 = (): boolean => {
+    const newErrors: ValidationErrors = {};
+
+    // Must have either line items OR manual quantity/cost
+    if (data.line_items.length === 0) {
+      if (!data.quantity || data.quantity <= 0) {
+        newErrors.quantity = 'Quantity is required';
+      }
+      if (!data.unit_cost || data.unit_cost <= 0) {
+        newErrors.unit_cost = 'Unit cost is required';
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleNext = () => {
+    if (step === 1 && data.orderType) {
+      setStep(2);
+    } else if (step === 2 && validateStep2()) {
+      setStep(3);
+    }
+  };
+
+  const handleBack = () => {
+    if (step > 1) setStep((step - 1) as WizardStep);
+  };
+
+  const handleSubmit = async () => {
+    if (!validateStep3()) return;
+
+    setIsSubmitting(true);
+    try {
+      await onSubmit(data);
+      onClose();
+    } catch (error) {
+      setErrors({ submit: error instanceof Error ? error.message : 'Failed to create order' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFileUpload = async (file: File) => {
+    setUploadResult(null);
+    try {
+      const result = await processUploadedFile(file);
+      if (result.success && result.data) {
+        setData(prev => ({
+          ...prev,
+          line_items: [...prev.line_items, ...result.data!],
+        }));
+        setUploadResult({
+          success: true,
+          message: `Added ${result.data.length} items (${formatNumber(result.summary?.total_units || 0)} units)`,
+        });
+      } else {
+        setUploadResult({ success: false, message: result.error || 'Failed to parse file' });
+      }
+    } catch (error) {
+      setUploadResult({ success: false, message: error instanceof Error ? error.message : 'Failed to process file' });
+    }
+  };
+
+  const updateField = <K extends keyof UploadWizardData>(field: K, value: UploadWizardData[K]) => {
+    setData(prev => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors(prev => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const totalUnits = data.line_items.reduce((sum, i) => sum + i.qty, 0) || (typeof data.quantity === 'number' ? data.quantity : 0);
+  const totalCost = data.line_items.reduce((sum, i) => sum + i.qty * i.unit_cost, 0) ||
+    ((typeof data.quantity === 'number' ? data.quantity : 0) * (typeof data.unit_cost === 'number' ? data.unit_cost : 0));
+
+  return (
+    <div className={cn('modal-overlay', isOpen && 'open')} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-handle" />
+
+        <div className="modal-header">
+          <h2 className="modal-title">
+            {step === 1 && 'What are you uploading?'}
+            {step === 2 && 'Order Details'}
+            {step === 3 && 'Products & Summary'}
+          </h2>
+          <button className="btn btn-icon btn-ghost" onClick={onClose}>
+            <Icons.X />
+          </button>
+        </div>
+
+        <div className="modal-body">
+          {/* Wizard Progress */}
+          <div className="wizard-progress">
+            <div className={cn('wizard-step', step >= 1 && 'active', step > 1 && 'completed')}>
+              <div className="wizard-step-number">{step > 1 ? <Icons.Check /> : '1'}</div>
+              <span className="wizard-step-label">Type</span>
+            </div>
+            <div className={cn('wizard-connector', step > 1 && 'completed')} />
+            <div className={cn('wizard-step', step >= 2 && 'active', step > 2 && 'completed')}>
+              <div className="wizard-step-number">{step > 2 ? <Icons.Check /> : '2'}</div>
+              <span className="wizard-step-label">Details</span>
+            </div>
+            <div className={cn('wizard-connector', step > 2 && 'completed')} />
+            <div className={cn('wizard-step', step >= 3 && 'active')}>
+              <div className="wizard-step-number">3</div>
+              <span className="wizard-step-label">Products</span>
+            </div>
+          </div>
+
+          {/* Step 1: Order Type Selection */}
+          {step === 1 && (
+            <div className="order-type-grid">
+              <button
+                className={cn('order-type-option', data.orderType === 'preorder' && 'selected')}
+                onClick={() => updateField('orderType', 'preorder')}
+              >
+                <div className="order-type-icon preorder">
+                  <Icons.Clock />
+                </div>
+                <div className="order-type-content">
+                  <div className="order-type-title">Pre-order</div>
+                  <div className="order-type-desc">Customer orders before inventory arrives. Includes open/close dates and deposit.</div>
+                </div>
+              </button>
+
+              <button
+                className={cn('order-type-option', data.orderType === 'restock' && 'selected')}
+                onClick={() => updateField('orderType', 'restock')}
+              >
+                <div className="order-type-icon restock">
+                  <Icons.Repeat />
+                </div>
+                <div className="order-type-content">
+                  <div className="order-type-title">Re-stock</div>
+                  <div className="order-type-desc">Replenishing existing inventory. Includes ETA window and warehouse location.</div>
+                </div>
+              </button>
+
+              <button
+                className={cn('order-type-option', data.orderType === 'onetime' && 'selected')}
+                onClick={() => updateField('orderType', 'onetime')}
+              >
+                <div className="order-type-icon onetime">
+                  <Icons.ShoppingCart />
+                </div>
+                <div className="order-type-content">
+                  <div className="order-type-title">One-time Order</div>
+                  <div className="order-type-desc">Single purchase with fixed payment date. Standard vendor order.</div>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Step 2: Order Details */}
+          {step === 2 && (
+            <div>
+              <div className="grid-2">
+                <div className="input-group">
+                  <label className="label">Brand Unit</label>
+                  <select
+                    className="input select"
+                    value={data.brand_unit}
+                    onChange={e => updateField('brand_unit', e.target.value as BrandUnit)}
+                  >
+                    <option value="ENROUTE.CC">ENROUTE.CC</option>
+                    <option value="ENROUTE.RUN">ENROUTE.RUN</option>
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="label">
+                    Brand <span className="required-indicator">*</span>
+                  </label>
+                  <BrandAutoSuggest
+                    value={data.brand}
+                    onChange={v => updateField('brand', v)}
+                    placeholder="e.g., MAAP, Nike"
+                  />
+                  {errors.brand && <div className="error-message"><Icons.AlertCircle />{errors.brand}</div>}
+                </div>
+              </div>
+
+              <div className="grid-2">
+                <div className="input-group">
+                  <label className="label">
+                    Vendor <span className="required-indicator">*</span>
+                  </label>
+                  <input
+                    className={cn('input', errors.vendor && 'input-error')}
+                    value={data.vendor}
+                    onChange={e => updateField('vendor', e.target.value)}
+                    placeholder="Vendor / Factory name"
+                  />
+                  {errors.vendor && <div className="error-message"><Icons.AlertCircle />{errors.vendor}</div>}
+                </div>
+                <div className="input-group">
+                  <label className="label">
+                    Product / Collection <span className="required-indicator">*</span>
+                  </label>
+                  <input
+                    className={cn('input', errors.collection_name && 'input-error')}
+                    value={data.collection_name}
+                    onChange={e => updateField('collection_name', e.target.value)}
+                    placeholder="e.g., Summer Capsule Vol. 3"
+                  />
+                  {errors.collection_name && <div className="error-message"><Icons.AlertCircle />{errors.collection_name}</div>}
+                </div>
+              </div>
+
+              <div className="grid-2">
+                <div className="input-group">
+                  <label className="label">Currency</label>
+                  <select
+                    className="input select"
+                    value={data.currency}
+                    onChange={e => updateField('currency', e.target.value as Currency)}
+                  >
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="CAD">CAD</option>
+                    <option value="CNY">CNY</option>
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label className="label">Payment Terms</label>
+                  <select
+                    className="input select"
+                    value={data.payment_terms}
+                    onChange={e => updateField('payment_terms', e.target.value as PaymentTerms)}
+                  >
+                    <option value="Prepaid">Prepaid</option>
+                    <option value="COD">COD (Cash on Delivery)</option>
+                    <option value="Net-15">Net-15</option>
+                    <option value="Net-30">Net-30</option>
+                    <option value="Net-45">Net-45</option>
+                    <option value="Net-60">Net-60</option>
+                    <option value="Net-90">Net-90</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Pre-order specific fields */}
+              {data.orderType === 'preorder' && (
+                <>
+                  <div className="grid-2">
+                    <div className="input-group">
+                      <label className="label">
+                        Pre-order Opens <span className="required-indicator">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        className={cn('input', errors.preorder_open_date && 'input-error')}
+                        value={data.preorder_open_date}
+                        onChange={e => updateField('preorder_open_date', e.target.value)}
+                      />
+                      {errors.preorder_open_date && <div className="error-message"><Icons.AlertCircle />{errors.preorder_open_date}</div>}
+                    </div>
+                    <div className="input-group">
+                      <label className="label">
+                        Pre-order Closes <span className="required-indicator">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        className={cn('input', errors.preorder_close_date && 'input-error')}
+                        value={data.preorder_close_date}
+                        onChange={e => updateField('preorder_close_date', e.target.value)}
+                      />
+                      {errors.preorder_close_date && <div className="error-message"><Icons.AlertCircle />{errors.preorder_close_date}</div>}
+                    </div>
+                  </div>
+                  <div className="grid-2">
+                    <div className="input-group">
+                      <label className="label">Deposit %</label>
+                      <input
+                        type="number"
+                        className="input mono"
+                        value={data.deposit_percentage}
+                        onChange={e => updateField('deposit_percentage', e.target.value ? parseFloat(e.target.value) : '')}
+                        placeholder="e.g., 50"
+                        min="0"
+                        max="100"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="label">Expected Payout Date</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={data.expected_payout_date}
+                        onChange={e => updateField('expected_payout_date', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="input-group">
+                    <label className="label">Est. Delivery Window</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={data.expected_arrival_date}
+                      onChange={e => updateField('expected_arrival_date', e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Re-stock specific fields */}
+              {data.orderType === 'restock' && (
+                <>
+                  <div className="grid-2">
+                    <div className="input-group">
+                      <label className="label">Order Date</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={data.order_date}
+                        onChange={e => updateField('order_date', e.target.value)}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="label">
+                        ETA / Arrival Date <span className="required-indicator">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        className={cn('input', errors.expected_arrival_date && 'input-error')}
+                        value={data.expected_arrival_date}
+                        onChange={e => updateField('expected_arrival_date', e.target.value)}
+                      />
+                      {errors.expected_arrival_date && <div className="error-message"><Icons.AlertCircle />{errors.expected_arrival_date}</div>}
+                    </div>
+                  </div>
+                  <div className="grid-2">
+                    <div className="input-group">
+                      <label className="label">Warehouse / Location</label>
+                      <input
+                        className="input"
+                        value={data.warehouse_location}
+                        onChange={e => updateField('warehouse_location', e.target.value)}
+                        placeholder="e.g., Main Warehouse"
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="label">Receiving Date</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={data.receiving_date}
+                        onChange={e => updateField('receiving_date', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* One-time order specific fields */}
+              {data.orderType === 'onetime' && (
+                <>
+                  <div className="grid-2">
+                    <div className="input-group">
+                      <label className="label">Order Date</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={data.order_date}
+                        onChange={e => updateField('order_date', e.target.value)}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="label">
+                        Due Date <span className="required-indicator">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        className={cn('input', errors.due_date && 'input-error')}
+                        value={data.due_date}
+                        onChange={e => updateField('due_date', e.target.value)}
+                      />
+                      {errors.due_date && <div className="error-message"><Icons.AlertCircle />{errors.due_date}</div>}
+                    </div>
+                  </div>
+                  <div className="grid-2">
+                    <div className="input-group">
+                      <label className="label">Payment Date</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={data.payment_date}
+                        onChange={e => updateField('payment_date', e.target.value)}
+                      />
+                    </div>
+                    <div className="input-group">
+                      <label className="label">Expected Arrival</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={data.expected_arrival_date}
+                        onChange={e => updateField('expected_arrival_date', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className="input-group">
+                <label className="label">Notes (optional)</label>
+                <textarea
+                  className="input textarea"
+                  value={data.notes}
+                  onChange={e => updateField('notes', e.target.value)}
+                  placeholder="Add any notes..."
+                  rows={2}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Products / Line Items */}
+          {step === 3 && (
+            <div>
+              <p style={{ color: 'var(--gray-600)', fontSize: '0.875rem', marginBottom: 'var(--sp-4)' }}>
+                Upload a file with product details, or enter quantity and cost manually.
+              </p>
+
+              <FileUploader onUpload={handleFileUpload} accept=".csv,.xlsx,.xls" />
+
+              {uploadResult && (
+                <div
+                  style={{
+                    marginTop: 'var(--sp-2)',
+                    padding: 'var(--sp-2) var(--sp-3)',
+                    borderRadius: 'var(--radius-md)',
+                    background: uploadResult.success ? 'var(--green-50)' : 'var(--red-50)',
+                    color: uploadResult.success ? 'var(--green-700)' : 'var(--red-700)',
+                    fontSize: '0.8125rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--sp-2)',
+                  }}
+                >
+                  {uploadResult.success ? <Icons.Check /> : <Icons.AlertCircle />}
+                  {uploadResult.message}
+                </div>
+              )}
+
+              {data.line_items.length > 0 && (
+                <div className="file-preview">
+                  <div className="file-preview-header">
+                    <div className="file-preview-title">Import Preview</div>
+                    <button className="btn btn-sm btn-ghost" onClick={() => updateField('line_items', [])}>
+                      Clear
+                    </button>
+                  </div>
+                  <div className="file-preview-summary">
+                    <div className="file-preview-stat">
+                      <div className="file-preview-stat-value">{data.line_items.length}</div>
+                      <div className="file-preview-stat-label">SKUs</div>
+                    </div>
+                    <div className="file-preview-stat">
+                      <div className="file-preview-stat-value">{formatNumber(totalUnits)}</div>
+                      <div className="file-preview-stat-label">Units</div>
+                    </div>
+                    <div className="file-preview-stat">
+                      <div className="file-preview-stat-value">{formatCurrency(totalCost, data.currency)}</div>
+                      <div className="file-preview-stat-label">Total Cost</div>
+                    </div>
+                    <div className="file-preview-stat">
+                      <div className="file-preview-stat-value">
+                        {formatCurrency(data.line_items.reduce((sum, i) => sum + i.qty * (i.unit_retail || i.unit_cost * 2.5), 0), data.currency)}
+                      </div>
+                      <div className="file-preview-stat-label">Est. Value</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {data.line_items.length === 0 && (
+                <>
+                  <div style={{ textAlign: 'center', padding: 'var(--sp-3) 0', color: 'var(--gray-400)', fontSize: '0.75rem' }}>
+                    — or enter manually —
+                  </div>
+                  <div className="grid-2">
+                    <div className="input-group">
+                      <label className="label">
+                        Quantity <span className="required-indicator">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        className={cn('input mono', errors.quantity && 'input-error')}
+                        value={data.quantity}
+                        onChange={e => updateField('quantity', e.target.value ? parseInt(e.target.value) : '')}
+                        placeholder="e.g., 100"
+                        min="1"
+                      />
+                      {errors.quantity && <div className="error-message"><Icons.AlertCircle />{errors.quantity}</div>}
+                    </div>
+                    <div className="input-group">
+                      <label className="label">
+                        Unit Cost ({data.currency}) <span className="required-indicator">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        className={cn('input mono', errors.unit_cost && 'input-error')}
+                        value={data.unit_cost}
+                        onChange={e => updateField('unit_cost', e.target.value ? parseFloat(e.target.value) : '')}
+                        placeholder="e.g., 25.00"
+                        min="0"
+                        step="0.01"
+                      />
+                      {errors.unit_cost && <div className="error-message"><Icons.AlertCircle />{errors.unit_cost}</div>}
+                    </div>
+                  </div>
+                  <div className="input-group">
+                    <label className="label">SKU (optional)</label>
+                    <input
+                      className="input mono"
+                      value={data.sku}
+                      onChange={e => updateField('sku', e.target.value)}
+                      placeholder="e.g., PROD-001"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Summary */}
+              <div className="card" style={{ marginTop: 'var(--sp-4)' }}>
+                <div className="card-body" style={{ padding: 'var(--sp-3)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: 'var(--sp-2)' }}>
+                    <span className="text-muted">Order Type</span>
+                    <span><OrderTypeBadge type={data.orderType!} /></span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', marginBottom: 'var(--sp-2)' }}>
+                    <span className="text-muted">Total Units</span>
+                    <span className="mono">{formatNumber(totalUnits)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', fontWeight: 600 }}>
+                    <span>Total Cost</span>
+                    <span className="mono">{formatCurrency(totalCost, data.currency)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {errors.submit && (
+                <div className="error-message" style={{ marginTop: 'var(--sp-3)', justifyContent: 'center' }}>
+                  <Icons.AlertCircle />{errors.submit}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          {step > 1 ? (
+            <button className="btn btn-secondary" onClick={handleBack} disabled={isSubmitting}>
+              Back
+            </button>
+          ) : (
+            <button className="btn btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+          )}
+          {step < 3 ? (
+            <button className="btn btn-primary" onClick={handleNext} disabled={step === 1 && !data.orderType}>
+              Next
+            </button>
+          ) : (
+            <button
+              className={cn('btn btn-primary', isSubmitting && 'btn-loading')}
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? '' : 'Create Order'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// EVENT DETAILS DRAWER (Mobile)
+// ============================================
+
+function EventDetailsDrawer({
+  event,
+  isOpen,
+  onClose,
+  onEdit,
+}: {
+  event: CalendarEvent | null;
+  isOpen: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  if (!event) return null;
+
+  const isRelease = event.type === 'release';
+  const release = isRelease ? (event.data as Release) : null;
+  const inbound = !isRelease ? (event.data as InboundOrderWithTotals) : null;
+
+  return (
+    <>
+      <div
+        className={cn('drawer-overlay', isOpen && 'open')}
+        onClick={onClose}
+        style={{ zIndex: 140 }}
+      />
+      <div className={cn('event-drawer', isOpen && 'open')}>
+        <div className="event-drawer-handle" />
+
+        <div className="event-drawer-header">
+          <h3 className="event-drawer-title">{event.title}</h3>
+          <div className="event-drawer-meta">
+            <BrandBadge brand={event.brand_unit} />
+            {isRelease && release && <TypeBadge type={release.type} />}
+            <StatusBadge status={event.status} type={event.type} />
+          </div>
+        </div>
+
+        <div className="event-drawer-body">
+          <div className="event-drawer-section">
+            <div className="event-drawer-section-title">Details</div>
+            <div className="event-drawer-row">
+              <span className="event-drawer-label">Date</span>
+              <span className="event-drawer-value">{formatDate(event.date)}</span>
+            </div>
+            {isRelease && release && (
+              <>
+                {release.release_time && (
+                  <div className="event-drawer-row">
+                    <span className="event-drawer-label">Time</span>
+                    <span className="event-drawer-value">{release.release_time}</span>
+                  </div>
+                )}
+                {release.brand && (
+                  <div className="event-drawer-row">
+                    <span className="event-drawer-label">Brand</span>
+                    <span className="event-drawer-value">{release.brand}</span>
+                  </div>
+                )}
+                {release.owner && (
+                  <div className="event-drawer-row">
+                    <span className="event-drawer-label">Owner</span>
+                    <span className="event-drawer-value">{release.owner}</span>
+                  </div>
+                )}
+                {release.line_items && release.line_items.length > 0 && (
+                  <>
+                    <div className="event-drawer-row">
+                      <span className="event-drawer-label">Total Units</span>
+                      <span className="event-drawer-value mono">{formatNumber(release.line_items.reduce((s, i) => s + i.qty, 0))}</span>
+                    </div>
+                    <div className="event-drawer-row">
+                      <span className="event-drawer-label">Total Value</span>
+                      <span className="event-drawer-value mono">
+                        {formatCurrency(release.line_items.reduce((s, i) => s + i.qty * (i.unit_retail || i.unit_cost * 2.5), 0))}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+            {!isRelease && inbound && (
+              <>
+                <div className="event-drawer-row">
+                  <span className="event-drawer-label">PO Number</span>
+                  <span className="event-drawer-value mono">{inbound.po_number}</span>
+                </div>
+                <div className="event-drawer-row">
+                  <span className="event-drawer-label">Vendor</span>
+                  <span className="event-drawer-value">{inbound.vendor}</span>
+                </div>
+                <div className="event-drawer-row">
+                  <span className="event-drawer-label">Collection</span>
+                  <span className="event-drawer-value">{inbound.collection_name}</span>
+                </div>
+                <div className="event-drawer-row">
+                  <span className="event-drawer-label">Total Units</span>
+                  <span className="event-drawer-value mono">{formatNumber(inbound.total_units)}</span>
+                </div>
+                <div className="event-drawer-row">
+                  <span className="event-drawer-label">Total Cost</span>
+                  <span className="event-drawer-value mono">{formatCurrency(inbound.total_cost, inbound.currency)}</span>
+                </div>
+                <div className="event-drawer-row">
+                  <span className="event-drawer-label">Payment Terms</span>
+                  <span className="event-drawer-value">{inbound.payment_terms}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="event-drawer-actions">
+          <button className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+          <button className="btn btn-primary" onClick={onEdit}>
+            Edit Details
+          </button>
+        </div>
+      </div>
+    </>
+  );
 }
 
 // ============================================
@@ -1786,6 +2714,24 @@ export default function App() {
   const [isNewRelease, setIsNewRelease] = useState(false);
   const [isNewInbound, setIsNewInbound] = useState(false);
 
+  // Upload wizard state
+  const [uploadWizardOpen, setUploadWizardOpen] = useState(false);
+
+  // Mobile event details drawer
+  const [eventDrawerOpen, setEventDrawerOpen] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+
+  // Toast notifications
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = useCallback((message: string, type: Toast['type'] = 'success') => {
+    const id = generateId('toast');
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  }, []);
+
   // Load data
   useEffect(() => {
     const loadData = async () => {
@@ -1886,8 +2832,87 @@ export default function App() {
   };
 
   const handleSelectEvent = (e: CalendarEvent) => {
-    if (e.type === 'release') openRelease(e.data as Release);
-    else openInbound(e.data as InboundOrderWithTotals);
+    // On mobile, show the event details drawer first
+    if (window.innerWidth <= 768) {
+      setSelectedEvent(e);
+      setEventDrawerOpen(true);
+    } else {
+      // On desktop, open the full drawer directly
+      if (e.type === 'release') openRelease(e.data as Release);
+      else openInbound(e.data as InboundOrderWithTotals);
+    }
+  };
+
+  const handleEventDrawerEdit = () => {
+    if (!selectedEvent) return;
+    setEventDrawerOpen(false);
+    if (selectedEvent.type === 'release') {
+      openRelease(selectedEvent.data as Release);
+    } else {
+      openInbound(selectedEvent.data as InboundOrderWithTotals);
+    }
+  };
+
+  // Handle upload wizard submission
+  const handleUploadWizardSubmit = async (wizardData: UploadWizardData) => {
+    // Create an inbound order from the wizard data
+    const lineItems: LineItem[] = wizardData.line_items.length > 0
+      ? wizardData.line_items
+      : [{
+          id: generateId('item'),
+          product_name: wizardData.collection_name,
+          sku: wizardData.sku || undefined,
+          qty: typeof wizardData.quantity === 'number' ? wizardData.quantity : 0,
+          unit_cost: typeof wizardData.unit_cost === 'number' ? wizardData.unit_cost : 0,
+        }];
+
+    // Determine the ETA date based on order type
+    let etaDate = wizardData.expected_arrival_date;
+    if (wizardData.orderType === 'preorder' && wizardData.expected_arrival_date) {
+      etaDate = wizardData.expected_arrival_date;
+    } else if (wizardData.orderType === 'onetime' && wizardData.due_date) {
+      etaDate = wizardData.due_date;
+    }
+
+    const newInbound = await dataStore.createInboundOrder({
+      brand_unit: wizardData.brand_unit,
+      brand: wizardData.brand,
+      collection_name: wizardData.collection_name,
+      vendor: wizardData.vendor,
+      po_number: `PO-${format(new Date(), 'yyyyMMdd')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+      order_date: wizardData.order_date || format(new Date(), 'yyyy-MM-dd'),
+      eta_date: etaDate,
+      status: 'Placed',
+      currency: wizardData.currency,
+      payment_terms: wizardData.payment_terms,
+      assets: [],
+      line_items: lineItems,
+      notes: wizardData.notes + (wizardData.orderType ? `\n[Order Type: ${wizardData.orderType}]` : ''),
+    });
+
+    setInbounds([...inbounds, newInbound]);
+
+    // Also create a release if it's a preorder
+    if (wizardData.orderType === 'preorder' && wizardData.preorder_open_date) {
+      const newRelease = await dataStore.createRelease({
+        brand_unit: wizardData.brand_unit,
+        brand: wizardData.brand,
+        title: `${wizardData.brand} - ${wizardData.collection_name} Pre-order`,
+        type: 'Preorder',
+        release_date: wizardData.preorder_open_date,
+        status: 'Confirmed',
+        summary: `Pre-order opens ${formatDate(wizardData.preorder_open_date)}${wizardData.preorder_close_date ? ` and closes ${formatDate(wizardData.preorder_close_date)}` : ''}`,
+        tags: ['preorder'],
+        assets: [],
+        line_items: lineItems,
+        payment_terms: wizardData.payment_terms,
+        owner: '',
+      });
+      setReleases([...releases, newRelease]);
+    }
+
+    const orderTypeLabel = wizardData.orderType === 'preorder' ? 'Pre-order' : wizardData.orderType === 'restock' ? 'Re-stock' : 'One-time order';
+    showToast(`${orderTypeLabel} created successfully!`, 'success');
   };
 
   if (loading) {
@@ -1897,7 +2922,7 @@ export default function App() {
   return (
     <div className="app">
       <Sidebar view={view} onViewChange={setView} onNewRelease={openNewRelease} onNewInbound={openNewInbound} />
-      
+
       <main className="main">
         <header className="header">
           <h1 className="header-title">
@@ -1906,7 +2931,7 @@ export default function App() {
             {view === 'list' && 'All Items'}
             {view === 'cashflow' && 'Cash Flow'}
           </h1>
-          <div className="flex gap-2">
+          <div className="flex gap-2 desktop-actions">
             <button className="btn btn-ghost" onClick={handleExportCalendar} title="Export to Google Calendar">
               <Icons.Calendar /> Export .ics
             </button>
@@ -1916,8 +2941,9 @@ export default function App() {
             <button className="btn btn-ghost" onClick={handleEmailReminders} title="Generate 7-day reminders">
               <Icons.Mail /> Reminders
             </button>
-            <button className="btn btn-secondary" onClick={openNewRelease}><Icons.Plus /> Release</button>
-            <button className="btn btn-primary" onClick={openNewInbound}><Icons.Plus /> Inbound</button>
+            <button className="btn btn-primary" onClick={() => setUploadWizardOpen(true)}>
+              <Icons.Upload /> Upload
+            </button>
           </div>
         </header>
 
@@ -1962,6 +2988,31 @@ export default function App() {
         onDelete={handleDeleteInbound}
         isNew={isNewInbound}
       />
+
+      {/* Upload Wizard Modal */}
+      <UploadWizardModal
+        isOpen={uploadWizardOpen}
+        onClose={() => setUploadWizardOpen(false)}
+        onSubmit={handleUploadWizardSubmit}
+      />
+
+      {/* Mobile Event Details Drawer */}
+      <EventDetailsDrawer
+        event={selectedEvent}
+        isOpen={eventDrawerOpen}
+        onClose={() => setEventDrawerOpen(false)}
+        onEdit={handleEventDrawerEdit}
+      />
+
+      {/* Mobile Bottom Navigation */}
+      <BottomNav
+        view={view}
+        onViewChange={setView}
+        onUploadClick={() => setUploadWizardOpen(true)}
+      />
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} />
     </div>
   );
 }
