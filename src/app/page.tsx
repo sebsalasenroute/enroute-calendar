@@ -406,14 +406,8 @@ function UploadWizardModal({
   const validateStep2 = (): boolean => {
     const newErrors: ValidationErrors = {};
 
-    if (!data.brand.trim()) newErrors.brand = 'Brand is required';
-    if (!data.vendor.trim()) newErrors.vendor = 'Vendor is required';
+    if (!data.vendor.trim()) newErrors.vendor = 'Vendor/Brand is required';
     if (!data.collection_name.trim()) newErrors.collection_name = 'Collection/Product name is required';
-
-    if (data.orderType === 'preorder') {
-      if (!data.preorder_open_date) newErrors.preorder_open_date = 'Open date is required';
-      if (!data.preorder_close_date) newErrors.preorder_close_date = 'Close date is required';
-    }
 
     if (data.orderType === 'restock') {
       if (!data.expected_arrival_date) newErrors.expected_arrival_date = 'ETA is required';
@@ -602,42 +596,31 @@ function UploadWizardModal({
                 </div>
                 <div className="input-group">
                   <label className="label">
-                    Brand <span className="required-indicator">*</span>
+                    Vendor / Brand <span className="required-indicator">*</span>
                   </label>
                   <BrandAutoSuggest
-                    value={data.brand}
-                    onChange={v => updateField('brand', v)}
-                    placeholder="e.g., MAAP, Nike"
-                  />
-                  {errors.brand && <div className="error-message"><Icons.AlertCircle />{errors.brand}</div>}
-                </div>
-              </div>
-
-              <div className="grid-2">
-                <div className="input-group">
-                  <label className="label">
-                    Vendor <span className="required-indicator">*</span>
-                  </label>
-                  <input
-                    className={cn('input', errors.vendor && 'input-error')}
                     value={data.vendor}
-                    onChange={e => updateField('vendor', e.target.value)}
-                    placeholder="Vendor / Factory name"
+                    onChange={v => {
+                      updateField('vendor', v);
+                      updateField('brand', v);
+                    }}
+                    placeholder="e.g., MAAP, Nike"
                   />
                   {errors.vendor && <div className="error-message"><Icons.AlertCircle />{errors.vendor}</div>}
                 </div>
-                <div className="input-group">
-                  <label className="label">
-                    Product / Collection <span className="required-indicator">*</span>
-                  </label>
-                  <input
-                    className={cn('input', errors.collection_name && 'input-error')}
-                    value={data.collection_name}
-                    onChange={e => updateField('collection_name', e.target.value)}
-                    placeholder="e.g., Summer Capsule Vol. 3"
-                  />
-                  {errors.collection_name && <div className="error-message"><Icons.AlertCircle />{errors.collection_name}</div>}
-                </div>
+              </div>
+
+              <div className="input-group">
+                <label className="label">
+                  Product / Collection <span className="required-indicator">*</span>
+                </label>
+                <input
+                  className={cn('input', errors.collection_name && 'input-error')}
+                  value={data.collection_name}
+                  onChange={e => updateField('collection_name', e.target.value)}
+                  placeholder="e.g., Summer Capsule Vol. 3"
+                />
+                {errors.collection_name && <div className="error-message"><Icons.AlertCircle />{errors.collection_name}</div>}
               </div>
 
               <div className="grid-2">
@@ -675,58 +658,21 @@ function UploadWizardModal({
 
               {/* Pre-order specific fields */}
               {data.orderType === 'preorder' && (
-                <>
-                  <div className="grid-2">
-                    <div className="input-group">
-                      <label className="label">
-                        Pre-order Opens <span className="required-indicator">*</span>
-                      </label>
-                      <input
-                        type="date"
-                        className={cn('input', errors.preorder_open_date && 'input-error')}
-                        value={data.preorder_open_date}
-                        onChange={e => updateField('preorder_open_date', e.target.value)}
-                      />
-                      {errors.preorder_open_date && <div className="error-message"><Icons.AlertCircle />{errors.preorder_open_date}</div>}
-                    </div>
-                    <div className="input-group">
-                      <label className="label">
-                        Pre-order Closes <span className="required-indicator">*</span>
-                      </label>
-                      <input
-                        type="date"
-                        className={cn('input', errors.preorder_close_date && 'input-error')}
-                        value={data.preorder_close_date}
-                        onChange={e => updateField('preorder_close_date', e.target.value)}
-                      />
-                      {errors.preorder_close_date && <div className="error-message"><Icons.AlertCircle />{errors.preorder_close_date}</div>}
-                    </div>
-                  </div>
-                  <div className="grid-2">
-                    <div className="input-group">
-                      <label className="label">Deposit %</label>
-                      <input
-                        type="number"
-                        className="input mono"
-                        value={data.deposit_percentage}
-                        onChange={e => updateField('deposit_percentage', e.target.value ? parseFloat(e.target.value) : '')}
-                        placeholder="e.g., 50"
-                        min="0"
-                        max="100"
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label className="label">Expected Payout Date</label>
-                      <input
-                        type="date"
-                        className="input"
-                        value={data.expected_payout_date}
-                        onChange={e => updateField('expected_payout_date', e.target.value)}
-                      />
-                    </div>
+                <div className="grid-2">
+                  <div className="input-group">
+                    <label className="label">Deposit %</label>
+                    <input
+                      type="number"
+                      className="input mono"
+                      value={data.deposit_percentage}
+                      onChange={e => updateField('deposit_percentage', e.target.value ? parseFloat(e.target.value) : '')}
+                      placeholder="e.g., 50"
+                      min="0"
+                      max="100"
+                    />
                   </div>
                   <div className="input-group">
-                    <label className="label">Est. Delivery Window</label>
+                    <label className="label">Expected Delivery Date</label>
                     <input
                       type="date"
                       className="input"
@@ -734,7 +680,7 @@ function UploadWizardModal({
                       onChange={e => updateField('expected_arrival_date', e.target.value)}
                     />
                   </div>
-                </>
+                </div>
               )}
 
               {/* Re-stock specific fields */}
@@ -1144,23 +1090,19 @@ function EventDetailsDrawer({
 
 type ViewType = 'dashboard' | 'calendar' | 'list' | 'cashflow';
 
-function Sidebar({ 
-  view, 
-  onViewChange, 
-  onNewRelease, 
-  onNewInbound 
-}: { 
+function Sidebar({
+  view,
+  onViewChange,
+}: {
   view: ViewType;
   onViewChange: (v: ViewType) => void;
-  onNewRelease: () => void;
-  onNewInbound: () => void;
 }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
         <div className="sidebar-logo">ENROUTE OPS</div>
       </div>
-      
+
       <nav className="sidebar-nav">
         <button className={cn('nav-item', view === 'dashboard' && 'active')} onClick={() => onViewChange('dashboard')}>
           <Icons.Dashboard /> Dashboard
@@ -1174,16 +1116,6 @@ function Sidebar({
         <button className={cn('nav-item', view === 'cashflow' && 'active')} onClick={() => onViewChange('cashflow')}>
           <Icons.DollarSign /> Cash Flow
         </button>
-
-        <div className="sidebar-section">
-          <div className="sidebar-label">Quick Add</div>
-          <button className="nav-item" onClick={onNewRelease}>
-            <Icons.Tag /> New Release
-          </button>
-          <button className="nav-item" onClick={onNewInbound}>
-            <Icons.Package /> New Inbound
-          </button>
-        </div>
       </nav>
     </aside>
   );
@@ -2921,7 +2853,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar view={view} onViewChange={setView} onNewRelease={openNewRelease} onNewInbound={openNewInbound} />
+      <Sidebar view={view} onViewChange={setView} />
 
       <main className="main">
         <header className="header">

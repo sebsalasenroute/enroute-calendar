@@ -190,18 +190,36 @@ export const assetTypeConfig: Record<AssetType, { icon: string; label: string }>
 export function parseCSV(text: string): Record<string, string>[] {
   const lines = text.split(/\r?\n/).filter(line => line.trim());
   if (lines.length < 2) return [];
-  
-  // Parse header row - handle quoted values
+
+  // Detect delimiter (comma, tab, semicolon, pipe)
+  const detectDelimiter = (line: string): string => {
+    const delimiters = [',', '\t', ';', '|'];
+    let bestDelimiter = ',';
+    let maxCount = 0;
+
+    for (const d of delimiters) {
+      const count = (line.match(new RegExp(d === '|' ? '\\|' : d, 'g')) || []).length;
+      if (count > maxCount) {
+        maxCount = count;
+        bestDelimiter = d;
+      }
+    }
+    return bestDelimiter;
+  };
+
+  const delimiter = detectDelimiter(lines[0]);
+
+  // Parse row - handle quoted values
   const parseRow = (row: string): string[] => {
     const values: string[] = [];
     let current = '';
     let inQuotes = false;
-    
+
     for (let i = 0; i < row.length; i++) {
       const char = row[i];
       if (char === '"') {
         inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
+      } else if (char === delimiter && !inQuotes) {
         values.push(current.trim());
         current = '';
       } else {
@@ -211,19 +229,28 @@ export function parseCSV(text: string): Record<string, string>[] {
     values.push(current.trim());
     return values;
   };
-  
-  const headers = parseRow(lines[0]).map(h => h.toLowerCase().replace(/['"]/g, ''));
+
+  // Parse all rows first to find header row
+  const allRows = lines.map(parseRow);
+  const headerRowIndex = findHeaderRow(allRows);
+
+  const headers = allRows[headerRowIndex].map(h =>
+    String(h).toLowerCase().replace(/['"]/g, '').trim()
+  );
   const rows: Record<string, string>[] = [];
-  
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseRow(lines[i]);
+
+  for (let i = headerRowIndex + 1; i < allRows.length; i++) {
+    const values = allRows[i];
+    // Skip empty rows
+    if (values.every(v => !v || !v.trim())) continue;
+
     const row: Record<string, string> = {};
     headers.forEach((h, idx) => {
-      row[h] = values[idx]?.replace(/^["']|["']$/g, '') || '';
+      row[h] = String(values[idx] ?? '').replace(/^["']|["']$/g, '').trim();
     });
     rows.push(row);
   }
-  
+
   return rows;
 }
 
@@ -234,32 +261,54 @@ export function parseCSV(text: string): Record<string, string>[] {
 export async function parseExcel(file: File): Promise<Record<string, string>[]> {
   // Dynamic import of xlsx library
   const XLSX = await import('xlsx');
-  
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 }) as string[][];
-        
+
+        // Try to find the best sheet (one with most data)
+        let bestSheet = workbook.Sheets[workbook.SheetNames[0]];
+        let bestRowCount = 0;
+
+        for (const sheetName of workbook.SheetNames) {
+          const sheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
+          if (jsonData.length > bestRowCount) {
+            bestRowCount = jsonData.length;
+            bestSheet = sheet;
+          }
+        }
+
+        const jsonData = XLSX.utils.sheet_to_json(bestSheet, { header: 1, defval: '' }) as string[][];
+
         if (jsonData.length < 2) {
           resolve([]);
           return;
         }
-        
-        const headers = jsonData[0].map(h => String(h).toLowerCase().trim());
+
+        // Find the header row using smart detection
+        const headerRowIndex = findHeaderRow(jsonData);
+
+        const headers = jsonData[headerRowIndex].map(h =>
+          String(h ?? '').toLowerCase().trim()
+        );
         const rows: Record<string, string>[] = [];
-        
-        for (let i = 1; i < jsonData.length; i++) {
+
+        for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
+          const rowData = jsonData[i];
+          // Skip empty rows
+          if (!rowData || rowData.every(cell => !cell || !String(cell).trim())) continue;
+
           const row: Record<string, string> = {};
           headers.forEach((h, idx) => {
-            row[h] = String(jsonData[i][idx] ?? '');
+            row[h] = String(rowData[idx] ?? '').trim();
           });
           rows.push(row);
         }
-        
+
         resolve(rows);
       } catch (err) {
         reject(err);
@@ -272,30 +321,203 @@ export async function parseExcel(file: File): Promise<Record<string, string>[]> 
 
 // ============================================
 // COLUMN MAPPING - Map various header names to our standard fields
+// Enhanced with fuzzy matching and extensive vendor format support
 // ============================================
 
 const columnMappings: Record<string, string[]> = {
-  sku: ['sku', 'our sku', 'internal sku', 'item sku', 'product sku', 'style number', 'style #', 'style'],
-  vendor_sku: ['vendor sku', 'vendor_sku', 'supplier sku', 'factory sku', 'manufacturer sku', 'mfr sku'],
-  product_name: ['product name', 'product_name', 'product', 'name', 'description', 'title', 'item', 'item name', 'item description'],
-  variant_title: ['variant', 'variant title', 'variant_title', 'option'],
-  size: ['size', 'sz', 'sizes'],
-  color: ['color', 'colour', 'col', 'colors'],
-  material: ['material', 'fabric', 'composition'],
-  qty: ['qty', 'quantity', 'units', 'order qty', 'order quantity', 'amount', 'count'],
-  unit_cost: ['unit cost', 'unit_cost', 'cost', 'price', 'unit price', 'wholesale', 'wholesale price', 'cost price', 'fob'],
-  unit_retail: ['unit retail', 'unit_retail', 'retail', 'rrp', 'msrp', 'retail price', 'srp', 'selling price'],
-  barcode: ['barcode', 'upc', 'ean', 'gtin'],
-  weight: ['weight', 'wt'],
-  hs_code: ['hs code', 'hs_code', 'tariff code', 'hts'],
-  country_of_origin: ['country of origin', 'origin', 'coo', 'made in'],
+  sku: [
+    'sku', 'our sku', 'internal sku', 'item sku', 'product sku',
+    'style number', 'style #', 'style', 'style code', 'style no',
+    'article number', 'article #', 'article', 'art no', 'art #',
+    'item number', 'item #', 'item no', 'item code',
+    'product code', 'prod code', 'code', 'reference', 'ref',
+    'model', 'model number', 'model #', 'part number', 'part #',
+  ],
+  vendor_sku: [
+    'vendor sku', 'vendor_sku', 'supplier sku', 'factory sku',
+    'manufacturer sku', 'mfr sku', 'mfg sku', 'supplier code',
+    'vendor code', 'vendor item', 'vendor ref', 'supplier ref',
+    'factory code', 'factory ref', 'external sku',
+  ],
+  product_name: [
+    'product name', 'product_name', 'product', 'name', 'description',
+    'title', 'item', 'item name', 'item description', 'product description',
+    'style name', 'style description', 'article name', 'article description',
+    'product title', 'item title', 'goods', 'goods description',
+    'merchandise', 'merch', 'desc', 'product desc',
+  ],
+  variant_title: [
+    'variant', 'variant title', 'variant_title', 'option', 'variation',
+    'variant name', 'variant description', 'option value',
+  ],
+  size: [
+    'size', 'sz', 'sizes', 'sizing', 'size code', 'size value',
+    'dimension', 'dimensions', 'product size', 'item size',
+    's/m/l', 'xs-xl', 'size range',
+  ],
+  color: [
+    'color', 'colour', 'col', 'colors', 'colours', 'color code',
+    'colour code', 'color name', 'colour name', 'colorway', 'colourway',
+    'shade', 'hue', 'tint', 'color/colour',
+  ],
+  material: [
+    'material', 'fabric', 'composition', 'materials', 'fabrics',
+    'content', 'fabric content', 'material content', 'fabric composition',
+    'textile', 'cloth', 'fiber', 'fibre',
+  ],
+  qty: [
+    'qty', 'quantity', 'units', 'order qty', 'order quantity',
+    'amount', 'count', 'pcs', 'pieces', 'total qty', 'total quantity',
+    'ordered', 'ordered qty', 'order units', 'unit count',
+    'no of units', 'number of units', '# of units', 'num units',
+    'pack qty', 'case qty', 'carton qty', 'stock', 'inventory',
+    'qty ordered', 'quantity ordered', 'order amount',
+  ],
+  unit_cost: [
+    'unit cost', 'unit_cost', 'cost', 'price', 'unit price',
+    'wholesale', 'wholesale price', 'cost price', 'fob', 'fob price',
+    'purchase price', 'buy price', 'buying price', 'landed cost',
+    'cost per unit', 'price per unit', 'ex-factory', 'exw', 'exw price',
+    'factory price', 'vendor price', 'supplier price', 'net price',
+    'cost each', 'each cost', 'unit $', '$ per unit', 'cogs',
+    'first cost', '1st cost',
+  ],
+  unit_retail: [
+    'unit retail', 'unit_retail', 'retail', 'rrp', 'msrp',
+    'retail price', 'srp', 'selling price', 'sell price',
+    'recommended retail', 'suggested retail', 'list price',
+    'sales price', 'retail $', 'price retail', 'consumer price',
+    'ticket price', 'tag price', 'sticker price', 'full price',
+    'compare at', 'compare at price', 'original price',
+  ],
+  barcode: [
+    'barcode', 'upc', 'ean', 'gtin', 'upc code', 'ean code',
+    'upc-a', 'ean-13', 'ean13', 'upc a', 'bar code', 'scan code',
+    'gtin-14', 'gtin14', 'isbn', 'asin',
+  ],
+  weight: [
+    'weight', 'wt', 'wgt', 'gross weight', 'net weight', 'item weight',
+    'product weight', 'unit weight', 'weight (kg)', 'weight (lb)',
+    'weight kg', 'weight lb', 'kg', 'lbs', 'grams', 'g',
+  ],
+  hs_code: [
+    'hs code', 'hs_code', 'tariff code', 'hts', 'hts code',
+    'harmonized code', 'customs code', 'tariff', 'hs number',
+    'commodity code', 'schedule b', 'hts number',
+  ],
+  country_of_origin: [
+    'country of origin', 'origin', 'coo', 'made in', 'country',
+    'manufacturing country', 'source country', 'produced in',
+    'manufactured in', 'origin country', 'mfg country',
+  ],
 };
 
-function mapColumn(header: string): string | null {
-  const normalized = header.toLowerCase().trim();
-  for (const [field, aliases] of Object.entries(columnMappings)) {
-    if (aliases.includes(normalized)) return field;
+// Fuzzy matching helpers
+function normalizeHeader(header: string): string {
+  return header
+    .toLowerCase()
+    .trim()
+    .replace(/[_\-\.\/\\]/g, ' ')  // Replace separators with spaces
+    .replace(/['"()[\]{}]/g, '')    // Remove quotes and brackets
+    .replace(/\s+/g, ' ')           // Collapse multiple spaces
+    .trim();
+}
+
+function calculateSimilarity(str1: string, str2: string): number {
+  const s1 = normalizeHeader(str1);
+  const s2 = normalizeHeader(str2);
+
+  // Exact match
+  if (s1 === s2) return 1;
+
+  // Contains match
+  if (s1.includes(s2) || s2.includes(s1)) return 0.9;
+
+  // Word overlap
+  const words1 = s1.split(' ');
+  const words2 = s2.split(' ');
+  const commonWords = words1.filter(w => words2.includes(w)).length;
+  if (commonWords > 0) {
+    return 0.5 + (commonWords / Math.max(words1.length, words2.length)) * 0.4;
   }
+
+  return 0;
+}
+
+function mapColumn(header: string): string | null {
+  const normalized = normalizeHeader(header);
+
+  // First, try exact match
+  for (const [field, aliases] of Object.entries(columnMappings)) {
+    for (const alias of aliases) {
+      if (normalizeHeader(alias) === normalized) return field;
+    }
+  }
+
+  // Second, try fuzzy match with high threshold
+  let bestMatch: { field: string; score: number } | null = null;
+  for (const [field, aliases] of Object.entries(columnMappings)) {
+    for (const alias of aliases) {
+      const score = calculateSimilarity(alias, header);
+      if (score >= 0.8 && (!bestMatch || score > bestMatch.score)) {
+        bestMatch = { field, score };
+      }
+    }
+  }
+
+  return bestMatch?.field || null;
+}
+
+// Smart header row detection - find the row with the most recognized columns
+function findHeaderRow(rows: string[][]): number {
+  let bestRowIndex = 0;
+  let bestScore = 0;
+
+  // Check first 10 rows for potential headers
+  const checkRows = Math.min(10, rows.length);
+  for (let i = 0; i < checkRows; i++) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+
+    let score = 0;
+    for (const cell of row) {
+      if (typeof cell === 'string' && mapColumn(cell)) {
+        score++;
+      }
+    }
+
+    // Also give points for having mostly text (not numbers)
+    const textCells = row.filter(cell =>
+      typeof cell === 'string' && isNaN(parseFloat(cell))
+    ).length;
+    score += textCells * 0.1;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestRowIndex = i;
+    }
+  }
+
+  return bestRowIndex;
+}
+
+// Detect numeric columns that might be qty or cost
+function inferColumnType(values: string[]): 'qty' | 'cost' | 'text' | null {
+  const numericValues = values
+    .map(v => parseFloat(String(v).replace(/[$,€£¥]/g, '')))
+    .filter(n => !isNaN(n) && n > 0);
+
+  if (numericValues.length < values.length * 0.5) return 'text';
+
+  const avg = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
+  const hasDecimals = numericValues.some(n => n % 1 !== 0);
+
+  // Quantities are usually whole numbers, often > 1
+  if (!hasDecimals && avg > 0.5 && avg < 10000) return 'qty';
+
+  // Costs usually have decimals or are in a typical price range
+  if (hasDecimals || (avg > 1 && avg < 100000)) return 'cost';
+
   return null;
 }
 
@@ -331,6 +553,21 @@ export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUplo
   const warnings: string[] = [];
   let skipped = 0;
 
+  // First pass: map all columns and detect unmapped numeric columns
+  const allKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const unmappedNumericColumns: { key: string; type: 'qty' | 'cost' }[] = [];
+
+  for (const key of allKeys) {
+    if (!mapColumn(key)) {
+      // Check if this unmapped column might be qty or cost
+      const values = rows.map(r => r[key]).filter(v => v);
+      const inferredType = inferColumnType(values);
+      if (inferredType === 'qty' || inferredType === 'cost') {
+        unmappedNumericColumns.push({ key, type: inferredType });
+      }
+    }
+  }
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const mappedRow: Record<string, string> = {};
@@ -339,12 +576,37 @@ export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUplo
     for (const [key, value] of Object.entries(row)) {
       const mappedKey = mapColumn(key);
       if (mappedKey) {
-        mappedRow[mappedKey] = value;
+        // Don't overwrite if already set (first match wins)
+        if (!mappedRow[mappedKey]) {
+          mappedRow[mappedKey] = value;
+        }
+      }
+    }
+
+    // Use inferred columns if standard ones are missing
+    for (const { key, type } of unmappedNumericColumns) {
+      if (type === 'qty' && !mappedRow.qty && row[key]) {
+        mappedRow.qty = row[key];
+      } else if (type === 'cost' && !mappedRow.unit_cost && row[key]) {
+        mappedRow.unit_cost = row[key];
       }
     }
 
     // Extract values
-    const productName = mappedRow.product_name || '';
+    let productName = mappedRow.product_name || '';
+
+    // Try to build product name from other fields if missing
+    if (!productName) {
+      const parts = [
+        mappedRow.vendor_sku,
+        mappedRow.sku,
+        mappedRow.variant_title,
+      ].filter(Boolean);
+      if (parts.length > 0) {
+        productName = parts.join(' - ');
+      }
+    }
+
     const qty = parseNumber(mappedRow.qty || '0');
 
     // Auto-detect cost vs retail prices
@@ -359,6 +621,9 @@ export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUplo
       continue;
     }
 
+    // If cost is 0, try to use retail * 0.4 as estimate
+    const finalCost = cost > 0 ? cost : (retail ? retail * 0.4 : 0);
+
     const item: LineItem = {
       id: `li-${Date.now()}-${i}`,
       sku: mappedRow.sku || undefined,
@@ -369,7 +634,7 @@ export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUplo
       color: mappedRow.color || undefined,
       material: mappedRow.material || undefined,
       qty,
-      unit_cost: cost,
+      unit_cost: finalCost,
       unit_retail: retail,
       barcode: mappedRow.barcode || undefined,
       weight: mappedRow.weight ? parseNumber(mappedRow.weight) : undefined,
@@ -387,6 +652,7 @@ export function parseLineItemsFromRows(rows: Record<string, string>[]): FileUplo
     success: items.length > 0,
     data: items,
     warnings: warnings.length > 0 ? warnings : undefined,
+    error: items.length === 0 ? 'No valid line items found. Please check that your file has product names and quantities.' : undefined,
     summary: {
       total_rows: rows.length,
       valid_rows: items.length,
