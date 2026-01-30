@@ -5,6 +5,72 @@
 // Brand Units
 export type BrandUnit = 'ENROUTE.CC' | 'ENROUTE.RUN';
 
+// Unified Order Type for the new upload wizard
+export type OrderType = 'preorder' | 'restock' | 'onetime';
+
+// Order Status (unified)
+export type OrderStatus =
+  | 'Draft'
+  | 'Placed'
+  | 'In Transit'
+  | 'Customs'
+  | 'Received Partial'
+  | 'Received Complete'
+  | 'Cancelled';
+
+// Unified Order Interface for new upload flow
+export interface Order {
+  id: string;
+  order_type: OrderType;
+  brand_unit: BrandUnit;
+  brand: string;
+  collection_name: string;
+  vendor: string;
+  po_number?: string;
+  sku?: string;
+  quantity: number;
+  unit_cost: number;
+  currency: Currency;
+  payment_terms: PaymentTerms;
+  notes?: string;
+  assets: Asset[];
+  line_items: LineItem[];
+  status: OrderStatus;
+  created_at: string;
+  updated_at: string;
+
+  // Common dates
+  expected_ship_date?: string;
+  expected_arrival_date?: string;
+
+  // Pre-order specific
+  preorder_open_date?: string;
+  preorder_close_date?: string;
+  est_delivery_window_start?: string;
+  est_delivery_window_end?: string;
+  deposit_percentage?: number;
+  expected_payout_date?: string;
+
+  // Re-stock specific
+  order_date?: string;
+  eta_window_start?: string;
+  eta_window_end?: string;
+  warehouse_location?: string;
+  receiving_date?: string;
+
+  // One-time order specific
+  due_date?: string;
+  payment_date?: string;
+}
+
+// Order with computed totals
+export interface OrderWithTotals extends Order {
+  total_units: number;
+  total_cost: number;
+  total_value: number;
+  total_skus: number;
+}
+
 // Release Types
 export type ReleaseType = 'Drop' | 'Restock' | 'Preorder' | 'Collaboration' | 'Event';
 
